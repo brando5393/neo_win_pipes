@@ -43,6 +43,26 @@ feature branch.
       to "elbow." Torus geometry is a nice-to-have polish item.
 - [x] Checked-in reference screenshot in `docs/screenshots/` (one so far;
       add more as the renderer evolves for visual regression comparison).
+- [x] Dissolve-on-reset: pipes shrink away over `dissolve_duration_ticks`
+      before the scene clears, echoing the original's transition, instead
+      of vanishing instantly — toggleable (`dissolve_on_reset`, default
+      on). Purely a render-time effect (`pipes-render::instance` scales
+      geometry by `Scene::dissolve_progress()`); `pipes-core` only tracks
+      a countdown and freezes growth during it. Verified two ways: unit
+      tests proving the shrink math (radius scales exactly
+      1.0→0.5→0.0 proportionally) and a live run's logs showing several
+      clean dissolve→reset cycles at the configured duration (a Windows
+      Hello lock screen interrupted the visual/screenshot check —
+      unrelated to the app, and the other two verifications were judged
+      sufficient rather than fighting the lock screen).
+- [x] Found and fixed a real forward-compatibility bug while building
+      this: `SimConfig`/`PipeVisuals`/`CameraConfig`/`AppConfig` didn't
+      have container-level `#[serde(default)]`, so a config file saved
+      before any of these two new fields existed would fail to parse
+      *entirely* and silently discard every other setting in it, not just
+      fall back for the fields that were actually missing. Fixed on all
+      four types; regression-tested with a fixture file missing the new
+      fields but customizing others, confirming the others survive.
 
 ## Phase 2.5 — Settings app (shipped)
 

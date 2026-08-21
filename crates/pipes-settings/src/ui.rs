@@ -191,6 +191,20 @@ pub fn draw(
                             .text("Reset once this full"),
                     )
                     .changed();
+                outcome.sim_changed |= ui
+                    .checkbox(
+                        &mut config.sim.dissolve_on_reset,
+                        "Dissolve pipes away on reset (classic effect)",
+                    )
+                    .changed();
+                ui.add_enabled_ui(config.sim.dissolve_on_reset, |ui| {
+                    outcome.sim_changed |= ui
+                        .add(
+                            Slider::new(&mut config.sim.dissolve_duration_ticks, 1..=90)
+                                .text("Dissolve duration (ticks)"),
+                        )
+                        .changed();
+                });
             });
 
             ui.separator();

@@ -12,7 +12,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::instance::PipeVisuals;
 
+/// `#[serde(default)]` (container-level) makes every field individually
+/// forward-compatible with older saved config files — see the matching
+/// note on `pipes_core::SimConfig` for why this matters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CameraConfig {
     pub orbit_enabled: bool,
     /// Radians per second of camera drift around the scene.
@@ -28,7 +32,11 @@ impl Default for CameraConfig {
     }
 }
 
+/// `#[serde(default)]` (container-level) makes every field individually
+/// forward-compatible with older saved config files — see the matching
+/// note on `pipes_core::SimConfig` for why this matters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppConfig {
     pub sim: SimConfig,
     pub visuals: PipeVisuals,
@@ -65,6 +73,7 @@ impl AppConfig {
         self.sim.turn_weight = self.sim.turn_weight.clamp(1, 100);
         self.sim.elbow_probability = self.sim.elbow_probability.clamp(0.0, 1.0);
         self.sim.max_pipe_length = self.sim.max_pipe_length.clamp(10, 100_000);
+        self.sim.dissolve_duration_ticks = self.sim.dissolve_duration_ticks.clamp(1, 300);
         if self.sim.palette.is_empty() {
             self.sim.palette = pipes_core::default_palette();
         }
@@ -150,6 +159,69 @@ mod tests {
             before,
             "defaults should need no clamping"
         );
+    }
+
+    #[test]
+    fn old_config_missing_newer_fields_keeps_its_other_settings() {
+        // Regression test for a real bug caught while adding the dissolve
+        // feature: without container-level #[serde(default)], a config
+        // file saved before a field existed would fail to parse entirely
+        // and silently discard every setting in it, not just fall back
+        // for the field that's actually missing. This file has no
+        // `dissolve_on_reset`/`dissolve_duration_ticks` at all (as if
+        // saved by an older version) but customizes `max_pipes` and
+        // `tick_interval_ms` — both must survive.
+        let path = test_path("old_format");
+        std::fs::write(
+            &path,
+            r#"
+tick_interval_ms = 250
+
+[sim]
+max_pipes = 12
+straight_weight = 10
+turn_weight = 1
+elbow_probability = 0.75
+reset_occupancy_ratio = 0.35
+max_pipe_length = 400
+spawn_attempts = 64
+style_mode = "Round"
+
+[sim.bounds]
+width = 24
+height = 16
+depth = 24
+
+[visuals]
+pipe_radius = 0.18
+ball_joint_scale = 1.4
+elbow_joint_scale = 1.05
+cap_scale = 1.1
+
+[camera]
+orbit_enabled = true
+orbit_speed = 0.15
+"#,
+        )
+        .unwrap();
+
+        let config = AppConfig::load_from(&path);
+        assert_eq!(
+            config.sim.max_pipes, 12,
+            "customized fields present in the file must survive"
+        );
+        assert_eq!(config.tick_interval_ms, 250);
+        assert!(
+            config.sim.dissolve_on_reset,
+            "missing fields must fall back to their own default, not wipe the file"
+        );
+        assert_eq!(config.sim.dissolve_duration_ticks, 15);
+        assert!(
+            !config.sim.palette.is_empty(),
+            "missing palette (also absent from this fixture) must fall back too"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

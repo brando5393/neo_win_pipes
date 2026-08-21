@@ -10,7 +10,16 @@ use crate::pipe::{Color, Pipe, PipeStyle, PipeStyleMode, StepOutcome};
 /// look; renderer front-ends may expose these as user-facing settings — see
 /// `docs/FEATURE_IDEAS.md` for which of these were validated by looking at
 /// what users of prior pipes-screensaver projects actually asked for.
+/// `#[serde(default)]` here is load-bearing, not decoration: it makes
+/// every field individually forward-compatible — a config file saved by
+/// an older version (missing whatever field got added since) still loads
+/// with its other settings intact, falling back to `SimConfig::default()`
+/// only for the fields that are actually absent, rather than the whole
+/// struct failing to parse and silently discarding everything (which is
+/// what would happen without this, and did — caught while testing the
+/// dissolve feature against a config file saved before it existed).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SimConfig {
     pub bounds: GridBounds,
     pub max_pipes: usize,
@@ -33,6 +42,14 @@ pub struct SimConfig {
     /// non-empty; `Scene::new` falls back to `default_palette()` if given
     /// an empty list (e.g. from a hand-edited config file).
     pub palette: Vec<Color>,
+    /// When the grid fills up, pipes shrink away over
+    /// `dissolve_duration_ticks` before the scene clears and restarts —
+    /// matching the original screensaver's transition — rather than
+    /// vanishing instantly. Toggleable per user preference.
+    pub dissolve_on_reset: bool,
+    /// How many ticks the dissolve-away animation takes. Only meaningful
+    /// when `dissolve_on_reset` is true.
+    pub dissolve_duration_ticks: u32,
 }
 
 impl Default for SimConfig {
@@ -48,6 +65,8 @@ impl Default for SimConfig {
             spawn_attempts: 64,
             style_mode: PipeStyleMode::default(),
             palette: default_palette(),
+            dissolve_on_reset: true,
+            dissolve_duration_ticks: 15,
         }
     }
 }
@@ -94,9 +113,29 @@ pub fn default_palette() -> Vec<Color> {
 /// A notable event a caller (renderer, logger, tests) might care about.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SceneEvent {
-    PipeSpawned { id: u32 },
-    PipeTerminated { id: u32 },
+    PipeSpawned {
+        id: u32,
+    },
+    PipeTerminated {
+        id: u32,
+    },
+    /// The grid filled up and the dissolve-away animation began (only
+    /// fires when `dissolve_on_reset` is enabled; otherwise the scene
+    /// clears immediately and only `SceneReset` fires).
+    DissolveStarted,
     SceneReset,
+}
+
+/// Where the scene is in its fill/clear cycle. Growth pauses during
+/// `Dissolving` — nothing spawns or steps further while pipes are
+/// shrinking away, since the whole point is a clean visual break before
+/// the next cycle starts.
+enum ScenePhase {
+    Growing,
+    Dissolving {
+        ticks_remaining: u32,
+        total_ticks: u32,
+    },
 }
 
 /// Owns the occupancy grid and the set of live pipes, and drives the
@@ -109,6 +148,7 @@ pub struct Scene {
     next_id: u32,
     rng: Pcg32,
     tick: u64,
+    phase: ScenePhase,
 }
 
 impl Scene {
@@ -122,6 +162,7 @@ impl Scene {
             next_id: 0,
             rng: Pcg32::new(seed, 0x0a02_bdbf_7bb3_c0a7),
             tick: 0,
+            phase: ScenePhase::Growing,
         }
     }
 
@@ -137,13 +178,54 @@ impl Scene {
         self.tick
     }
 
-    /// Advance the whole scene by one tick: step every live pipe, reap dead
-    /// ones, spawn replacements up to `max_pipes`, and reset if the grid has
-    /// filled past the configured threshold. Returns the events that
-    /// occurred, in order, for callers that want to log or react to them.
+    /// `Some(progress)` in `[0.0, 1.0]` while the scene is dissolving away
+    /// after filling up (0.0 = just started, approaching 1.0 = about to
+    /// clear); `None` while pipes are growing normally. Renderers use this
+    /// to shrink pipe/joint visuals proportionally — see
+    /// `pipes-render::instance`.
+    pub fn dissolve_progress(&self) -> Option<f32> {
+        match self.phase {
+            ScenePhase::Growing => None,
+            ScenePhase::Dissolving {
+                ticks_remaining,
+                total_ticks,
+            } => {
+                let elapsed = total_ticks.saturating_sub(ticks_remaining);
+                Some(elapsed as f32 / total_ticks.max(1) as f32)
+            }
+        }
+    }
+
+    /// Advance the whole scene by one tick. While `Growing`: step every
+    /// live pipe, reap dead ones, spawn replacements up to `max_pipes`,
+    /// and — once the grid fills past the configured threshold — either
+    /// clear immediately (`SceneReset`) or, if `dissolve_on_reset` is
+    /// enabled, enter the `Dissolving` phase instead (`DissolveStarted`)
+    /// and freeze growth. While `Dissolving`: nothing grows; once the
+    /// countdown reaches zero, clear and emit `SceneReset`. Returns the
+    /// events that occurred, in order, for callers that want to log or
+    /// react to them.
     pub fn step(&mut self) -> Vec<SceneEvent> {
         let mut events = Vec::new();
         self.tick += 1;
+
+        if let ScenePhase::Dissolving {
+            ticks_remaining,
+            total_ticks,
+        } = self.phase
+        {
+            if ticks_remaining <= 1 {
+                info!(tick = self.tick, "scene reset (dissolve complete)");
+                self.reset();
+                events.push(SceneEvent::SceneReset);
+            } else {
+                self.phase = ScenePhase::Dissolving {
+                    ticks_remaining: ticks_remaining - 1,
+                    total_ticks,
+                };
+            }
+            return events;
+        }
 
         for pipe in &mut self.pipes {
             if !pipe.is_alive() {
@@ -176,13 +258,28 @@ impl Scene {
         }
 
         if self.grid.occupancy_ratio() >= self.config.reset_occupancy_ratio {
-            info!(
-                tick = self.tick,
-                ratio = self.grid.occupancy_ratio(),
-                "scene reset (grid filled)"
-            );
-            self.reset();
-            events.push(SceneEvent::SceneReset);
+            if self.config.dissolve_on_reset {
+                let total_ticks = self.config.dissolve_duration_ticks.max(1);
+                info!(
+                    tick = self.tick,
+                    ratio = self.grid.occupancy_ratio(),
+                    total_ticks,
+                    "scene dissolving (grid filled)"
+                );
+                self.phase = ScenePhase::Dissolving {
+                    ticks_remaining: total_ticks,
+                    total_ticks,
+                };
+                events.push(SceneEvent::DissolveStarted);
+            } else {
+                info!(
+                    tick = self.tick,
+                    ratio = self.grid.occupancy_ratio(),
+                    "scene reset (grid filled)"
+                );
+                self.reset();
+                events.push(SceneEvent::SceneReset);
+            }
         }
 
         events
@@ -231,6 +328,7 @@ impl Scene {
     fn reset(&mut self) {
         self.grid.clear();
         self.pipes.clear();
+        self.phase = ScenePhase::Growing;
     }
 }
 
@@ -306,5 +404,100 @@ mod tests {
             run(),
             "identical seed must reproduce identical event sequence"
         );
+    }
+
+    #[test]
+    fn dissolve_progress_is_none_while_growing() {
+        let scene = Scene::new(tiny_config(), 1);
+        assert_eq!(scene.dissolve_progress(), None);
+    }
+
+    #[test]
+    fn dissolve_starts_freezes_growth_then_resets() {
+        let config = SimConfig {
+            dissolve_on_reset: true,
+            dissolve_duration_ticks: 4,
+            ..tiny_config()
+        };
+        let mut scene = Scene::new(config, 2);
+
+        let mut saw_dissolve_start = false;
+        let mut occupied_at_dissolve_start = None;
+        for _ in 0..500 {
+            let events = scene.step();
+            if events.contains(&SceneEvent::DissolveStarted) {
+                saw_dissolve_start = true;
+                occupied_at_dissolve_start = Some(scene.grid().occupied_count());
+                assert!(
+                    scene.dissolve_progress().is_some(),
+                    "dissolve_progress must be Some right after DissolveStarted"
+                );
+                break;
+            }
+        }
+        assert!(
+            saw_dissolve_start,
+            "a 6x6x6 grid at 50% threshold must eventually start dissolving"
+        );
+
+        // While dissolving, the grid must stay frozen (no more growth) —
+        // nothing should spawn or step until the dissolve completes.
+        let occupied_before = occupied_at_dissolve_start.unwrap();
+        let mut saw_reset = false;
+        for _ in 0..10 {
+            let events = scene.step();
+            assert!(
+                !events.iter().any(|e| matches!(
+                    e,
+                    SceneEvent::PipeSpawned { .. } | SceneEvent::PipeTerminated { .. }
+                )),
+                "no pipe growth/termination events should occur while dissolving"
+            );
+            if events.contains(&SceneEvent::SceneReset) {
+                saw_reset = true;
+                break;
+            }
+            assert_eq!(
+                scene.grid().occupied_count(),
+                occupied_before,
+                "grid must stay frozen while dissolving"
+            );
+        }
+        assert!(saw_reset, "dissolve must eventually complete and reset");
+        assert_eq!(
+            scene.dissolve_progress(),
+            None,
+            "dissolve_progress must be None again after reset"
+        );
+        assert_eq!(
+            scene.grid().occupied_count(),
+            0,
+            "reset must clear the grid"
+        );
+    }
+
+    #[test]
+    fn dissolve_disabled_resets_immediately_like_before() {
+        let config = SimConfig {
+            dissolve_on_reset: false,
+            ..tiny_config()
+        };
+        let mut scene = Scene::new(config, 2);
+
+        let mut saw_reset = false;
+        for _ in 0..500 {
+            let events = scene.step();
+            assert!(
+                !events.contains(&SceneEvent::DissolveStarted),
+                "DissolveStarted must never fire when disabled"
+            );
+            if events.contains(&SceneEvent::SceneReset) {
+                saw_reset = true;
+                break;
+            }
+        }
+        assert!(saw_reset);
+        assert_eq!(scene.grid().occupied_count(), 0);
+        assert_eq!(scene.dissolve_progress(), None);
     }
 }

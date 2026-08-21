@@ -50,7 +50,9 @@ identifying details, at what time.
 | `scene created`       | INFO  | `Scene::new`             | `seed`, `config.bounds`, `max_pipes`                 | A new simulation started (or restarted). |
 | `pipe spawned`        | DEBUG | `Scene::try_spawn_pipe`  | `pipe_id`, `p` (start position), `dir`, `style`       | A new pipe began growing. |
 | `pipe terminated`     | DEBUG | `Scene::step`            | `pipe_id`, `reason` (`Stuck`/`MaxLengthReached`), `len` | A pipe stopped growing and will be reaped/replaced. |
-| `scene reset (grid filled)` | INFO | `Scene::step`      | `tick`, `ratio`                                       | The grid crossed `reset_occupancy_ratio`; everything cleared and restarts. |
+| `scene dissolving (grid filled)` | INFO | `Scene::step` | `tick`, `ratio`, `total_ticks`                        | The grid crossed `reset_occupancy_ratio` and `dissolve_on_reset` is enabled; pipes now shrink away over `total_ticks` before the actual clear (see `scene reset (dissolve complete)`). Growth is frozen for the duration. |
+| `scene reset (grid filled)` | INFO | `Scene::step`      | `tick`, `ratio`                                       | The grid crossed `reset_occupancy_ratio` and `dissolve_on_reset` is disabled; cleared immediately (no dissolve). |
+| `scene reset (dissolve complete)` | INFO | `Scene::step` | `tick`                                                | The dissolve countdown from `scene dissolving (grid filled)` reached zero; everything cleared and restarts. |
 | `tick summary`        | INFO  | `pipes-app` main loop    | `tick`, `live_pipes`, `occupancy`                     | Periodic (every 50 ticks) heartbeat so a long run is still legible without DEBUG noise. |
 | `neo_win_pipes starting` / `finished` | INFO | `pipes-app` main | `ticks`, `seed` / `elapsed_ms`, totals | Process lifecycle bookends. |
 

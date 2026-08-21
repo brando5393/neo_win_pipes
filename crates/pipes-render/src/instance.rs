@@ -16,7 +16,11 @@ pub struct InstanceRaw {
 
 /// Tunables for how thick pipes/joints render, in grid units (one grid unit
 /// == one cell == the distance between consecutive path points).
+/// `#[serde(default)]` (container-level) makes every field individually
+/// forward-compatible with older saved config files — see the matching
+/// note on `pipes_core::SimConfig` for why this matters.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct PipeVisuals {
     pub pipe_radius: f32,
     pub ball_joint_scale: f32,
@@ -75,55 +79,52 @@ fn point_instance(p: GridPos, scale: f32, color: [f32; 3]) -> InstanceRaw {
     }
 }
 
+/// Builds this frame's instances from the scene's current pipes. When the
+/// scene is dissolving (see `Scene::dissolve_progress`), every pipe/joint
+/// shrinks proportionally toward zero as the countdown runs out — the
+/// classic-inspired "dissolve away" transition, purely a render-time
+/// effect (`pipes-core` doesn't know or care that geometry shrinks; it
+/// only tracks the countdown).
 pub fn build_instances(scene: &Scene, visuals: &PipeVisuals) -> InstanceSets {
     let mut sets = InstanceSets::default();
+    let shrink = 1.0 - scene.dissolve_progress().unwrap_or(0.0);
 
     for pipe in scene.pipes() {
-        push_pipe(pipe, visuals, &mut sets);
+        push_pipe(pipe, visuals, shrink, &mut sets);
     }
 
     sets
 }
 
-fn push_pipe(pipe: &Pipe, visuals: &PipeVisuals, sets: &mut InstanceSets) {
+fn push_pipe(pipe: &Pipe, visuals: &PipeVisuals, shrink: f32, sets: &mut InstanceSets) {
     let color = color_array(pipe.color);
     let path = pipe.path();
+    let radius = visuals.pipe_radius * shrink;
 
     let segments = match pipe.style {
         PipeStyle::Round => &mut sets.round_segments,
         PipeStyle::Square => &mut sets.square_segments,
     };
     for pair in path.windows(2) {
-        segments.push(segment_instance(
-            pair[0],
-            pair[1],
-            visuals.pipe_radius,
-            color,
-        ));
+        segments.push(segment_instance(pair[0], pair[1], radius, color));
     }
 
     for &(index, kind) in pipe.joints() {
         let scale = match kind {
             JointKind::Ball => visuals.ball_joint_scale,
             JointKind::Elbow => visuals.elbow_joint_scale,
-        } * visuals.pipe_radius;
+        } * radius;
         sets.joints.push(point_instance(path[index], scale, color));
     }
 
     if let Some(&start) = path.first() {
-        sets.joints.push(point_instance(
-            start,
-            visuals.cap_scale * visuals.pipe_radius,
-            color,
-        ));
+        sets.joints
+            .push(point_instance(start, visuals.cap_scale * radius, color));
     }
     if path.len() > 1 {
         let end = *path.last().expect("checked non-empty above");
-        sets.joints.push(point_instance(
-            end,
-            visuals.cap_scale * visuals.pipe_radius,
-            color,
-        ));
+        sets.joints
+            .push(point_instance(end, visuals.cap_scale * radius, color));
     }
 }
 
@@ -131,6 +132,53 @@ fn push_pipe(pipe: &Pipe, visuals: &PipeVisuals, sets: &mut InstanceSets) {
 mod tests {
     use super::*;
     use pipes_core::{Direction, SimConfig};
+
+    /// Approximates the uniform x/y (radius) scale baked into a model
+    /// matrix built by `segment_instance`/`point_instance` — rotation
+    /// preserves vector length, so the local x-basis column's length
+    /// after transform equals the scale that was applied before rotation.
+    fn approx_radius_scale(instance: &InstanceRaw) -> f32 {
+        let col0 = Vec3::new(
+            instance.model[0][0],
+            instance.model[0][1],
+            instance.model[0][2],
+        );
+        col0.length()
+    }
+
+    #[test]
+    fn dissolve_shrink_scales_radius_proportionally() {
+        let pipe = Pipe::new(
+            0,
+            PipeStyle::Round,
+            Color::new(1.0, 1.0, 1.0),
+            GridPos::new(0, 0, 0),
+            Direction::PosX,
+        );
+        let visuals = PipeVisuals::default();
+
+        let mut full = InstanceSets::default();
+        push_pipe(&pipe, &visuals, 1.0, &mut full);
+        let mut half = InstanceSets::default();
+        push_pipe(&pipe, &visuals, 0.5, &mut half);
+        let mut gone = InstanceSets::default();
+        push_pipe(&pipe, &visuals, 0.0, &mut gone);
+
+        // A single fresh pipe only has its two end caps (no segments yet).
+        let full_cap = approx_radius_scale(&full.joints[0]);
+        let half_cap = approx_radius_scale(&half.joints[0]);
+        let gone_cap = approx_radius_scale(&gone.joints[0]);
+
+        assert!((full_cap - visuals.cap_scale * visuals.pipe_radius).abs() < 1e-5);
+        assert!(
+            (half_cap - full_cap * 0.5).abs() < 1e-5,
+            "half shrink must halve the radius"
+        );
+        assert!(
+            gone_cap < 1e-5,
+            "zero shrink must collapse to (approximately) nothing"
+        );
+    }
 
     #[test]
     fn empty_scene_has_no_instances() {
