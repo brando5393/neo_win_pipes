@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Windows installer for neo_win_pipes. Two things get installed:
+
+  1. The screensaver itself: pipes-app.exe, copied into System32 and
+     renamed neo_win_pipes.scr. This is the OS's own convention for
+     screensavers — Windows' "Screen saver" dropdown in Settings scans
+     System32 for *.scr files, so the real executable has to live there
+     for it to show up and be selectable, exactly like every other
+     screensaver on the system.
+  2. Pipes Settings (pipes-settings.exe), installed like a normal app in
+     Program Files with a Start Menu shortcut. It's found by pipes-app's
+     `/c` handler via a Program-Files fallback path even though it's not
+     sitting next to the .scr in System32 — see settings_app_candidates()
+     in crates/pipes-app/src/main.rs.
+
+  Deliberately does NOT change your active screensaver selection or touch
+  HKCU\Control Panel\Desktop — installing just makes it available and
+  selectable in Settings, same as installing any other screensaver.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="neo_win_pipes"
+           Manufacturer="Brandon Williams"
+           Version="0.1.0"
+           UpgradeCode="eb4afeb2-7b8d-4d35-9e06-92493acafe56"
+           Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of neo_win_pipes is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer\license.rtf" />
+
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="neo_win_pipes">
+        <Component Id="PipesSettingsExe" Guid="4f1b6f9a-2b7e-4a1a-9a3a-1c9a2b6f7e10">
+          <File Id="PipesSettingsExeFile" Source="$(var.PipesSettingsExe)" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="SystemFolder">
+      <Component Id="PipesScr" Guid="9c2e6a4d-8b1f-4e3c-8a2d-5f6b7c8d9e0a">
+        <File Id="PipesScrFile" Source="$(var.PipesAppExe)" Name="neo_win_pipes.scr" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppProgramMenuFolder" Name="neo_win_pipes">
+        <Component Id="StartMenuShortcut" Guid="7a3d9e5c-1f2b-4c6d-9e0a-3b4c5d6e7f81">
+          <Shortcut Id="PipesSettingsShortcut"
+                    Name="Pipes Settings"
+                    Description="Live preview and settings for the neo_win_pipes screensaver"
+                    Target="[INSTALLFOLDER]pipes-settings.exe"
+                    WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="RemoveAppProgramMenuFolder" On="uninstall" />
+          <RegistryValue Root="HKCU"
+                          Key="Software\neo_win_pipes"
+                          Name="installed"
+                          Type="integer"
+                          Value="1"
+                          KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="neo_win_pipes" Level="1">
+      <ComponentRef Id="PipesSettingsExe" />
+      <ComponentRef Id="PipesScr" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+  </Package>
+</Wix>

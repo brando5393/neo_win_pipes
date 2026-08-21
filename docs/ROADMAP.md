@@ -151,14 +151,47 @@ for the full writeup per platform.
 
 ## Phase 4 — Installable packages
 
-- [ ] Windows: `.msi` via `cargo-wix`, installs+registers the `.scr`.
+### Windows — done
+
+- [x] `neo_win_pipes.msi` (`installer/main.wxs`, built with WiX Toolset
+      v7 — not `cargo-wix`, which targets the older WiX v3 that needs an
+      admin-only Windows Feature; WiX v7 installs per-user as a `dotnet`
+      tool instead). One double-click installs both `pipes-settings.exe`
+      (Program Files + Start Menu shortcut, like a normal app) and
+      `pipes-app.exe` (renamed `neo_win_pipes.scr`, into `System32` — the
+      OS's own convention for where the screensaver dropdown looks).
+- [x] Deliberately does **not** auto-select itself as the active
+      screensaver or touch `HKCU\Control Panel\Desktop` — installing only
+      makes it available in the dropdown, the same restraint any
+      well-behaved installer should have toward existing user settings.
+- [x] Validated without needing an actual elevated install (which would
+      need an interactive UAC click, not automatable): `wix msi validate`
+      (clean ICE pass, one expected/benign ICE09 warning about the
+      System32 file being non-permanent — correct, since we want it
+      removed on uninstall) and an administrative extract
+      (`msiexec /a ... TARGETDIR=...`) confirming the exact file layout.
+      The final elevated install itself still needs a human click-through
+      — see [DEVELOPMENT.md](DEVELOPMENT.md#building-the-windows-installer-msi).
+- [x] `pipes-app`'s `/c` handler updated (`settings_app_candidates()`) to
+      find `pipes-settings.exe` in its installed Program Files location,
+      not just next to the running exe — needed since the `.scr` and the
+      settings app now live in different directories once installed.
+- [ ] Not yet done: code signing (currently unsigned — Windows SmartScreen
+      will warn on first run until there's a code-signing certificate);
+      CI doesn't build this on tagged releases yet (still manual).
+
+### macOS / Linux — not started
+
 - [ ] macOS: signed `.pkg`/`.dmg` installing the `.saver` bundle
-      (unsigned/ad-hoc-signed builds until there's an Apple Developer ID).
-- [ ] Linux: `.deb` and an AppImage.
+      (unsigned/ad-hoc-signed builds until there's an Apple Developer ID)
+      — blocked on the `.saver` itself not existing yet (Phase 3).
+- [ ] Linux: `.deb` and an AppImage — blocked on the X11 embedding not
+      existing yet (Phase 3).
 - [ ] GitHub Actions builds all three on tagged releases and attaches them
       to a GitHub Release, so the end state is: pick your OS, download one
       file, install it, select "neo_win_pipes" in your screensaver
-      settings.
+      settings. CI already builds/tests on all three OSes per-push (see
+      Phase 1) — this would extend that to produce release artifacts.
 
 ## Explicitly out of scope for now
 

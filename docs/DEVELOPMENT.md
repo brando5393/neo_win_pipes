@@ -81,6 +81,71 @@ This is purely a local-machine workaround (this repo does not pin any
 particular host toolchain — a normal x64 or properly-provisioned ARM64
 Windows machine needs none of this).
 
+## Building the Windows installer (`.msi`)
+
+Prerequisites (no admin rights needed for any of this, since the Windows
+Installer engine itself does the elevation dance later, at install time,
+not at build time):
+
+- [WiX Toolset v7+](https://wixtoolset.org/) as a per-user `dotnet` tool
+  (avoids WiX v3's admin-only .NET Framework 3.5 Windows Feature
+  dependency):
+  ```powershell
+  # One-time setup — .NET SDK and WiX, both installed per-user:
+  Invoke-WebRequest -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile "$env:TEMP\dotnet-install.ps1"
+  & "$env:TEMP\dotnet-install.ps1" -Channel LTS -InstallDir "$env:USERPROFILE\.dotnet"
+  $env:Path = "$env:USERPROFILE\.dotnet;$env:Path"; $env:DOTNET_ROOT = "$env:USERPROFILE\.dotnet"
+  dotnet tool install --global wix
+  ```
+- **WiX v7 requires accepting its EULA once** (the "Open Source
+  Maintenance Fee" terms — free unless your project/org clears
+  $10,000/year in revenue from projects using WiX, which doesn't apply
+  here, but it's still a real legal acceptance, so we asked before doing
+  it rather than accepting it silently):
+  ```powershell
+  $env:Path = "$env:USERPROFILE\.dotnet;$env:USERPROFILE\.dotnet\tools;" + $env:Path
+  $env:DOTNET_ROOT = "$env:USERPROFILE\.dotnet"
+  wix eula accept wix7
+  wix extension add WixToolset.UI.wixext
+  ```
+
+Then, build release binaries and the `.msi`:
+
+```powershell
+. .\scripts\dev-shell.ps1   # if on Windows-on-ARM64, see the caveat above
+cargo build --release -p pipes-app -p pipes-settings
+
+$env:Path = "$env:USERPROFILE\.dotnet;$env:USERPROFILE\.dotnet\tools;" + $env:Path
+$env:DOTNET_ROOT = "$env:USERPROFILE\.dotnet"
+wix build installer\main.wxs -ext WixToolset.UI.wixext `
+  -d PipesAppExe="target\release\pipes-app.exe" `
+  -d PipesSettingsExe="target\release\pipes-settings.exe" `
+  -o installer\out\neo_win_pipes.msi
+```
+
+### Validating the `.msi` without actually installing it
+
+Because `installer/main.wxs` puts a file in `System32`, the built `.msi`
+requires admin elevation to actually install — which typically means a
+UAC prompt, not something a non-interactive/automated session can click
+through. Two checks that *don't* need elevation:
+
+```powershell
+# ICE validation (catches most authoring mistakes) — expect exactly one
+# benign ICE09 warning about a "non-permanent system component", which is
+# correct here: we want the .scr removed from System32 on uninstall.
+wix msi validate installer\out\neo_win_pipes.msi
+
+# Administrative extract (unpacks to an arbitrary folder, no elevation
+# needed) — confirms the file layout is exactly right without installing:
+msiexec /a installer\out\neo_win_pipes.msi /qn TARGETDIR="$env:TEMP\msi_check"
+Get-ChildItem -Recurse "$env:TEMP\msi_check"   # expect PFiles\neo_win_pipes\pipes-settings.exe and System\neo_win_pipes.scr
+```
+
+The actual elevated install (`msiexec /i ...`, or just double-clicking the
+`.msi`) needs to be done interactively by someone who can approve the UAC
+prompt.
+
 ## Commit / PR conventions
 
 - Every change to simulation logic ships with its tests in the same

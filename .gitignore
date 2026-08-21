@@ -8,3 +8,6 @@ Thumbs.db
 /dist
 .vscode/
 .idea/
+/installer/out
+*.wixpdb
+/.wix

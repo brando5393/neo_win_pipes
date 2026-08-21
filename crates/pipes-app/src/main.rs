@@ -49,32 +49,50 @@ fn init_logging() {
         .init();
 }
 
-/// Locates `pipes-settings` next to this executable (both binaries are
-/// installed side by side — see docs/ROADMAP.md for the packaging plan).
-fn settings_app_path() -> Option<std::path::PathBuf> {
+/// Candidate locations for `pipes-settings`, tried in order: (1) next to
+/// this executable, for dev/testing convenience when both binaries sit
+/// in the same folder (`cargo run`/`target/debug`); (2) the installed
+/// location once packaged (Phase 4) — the real screensaver lives in
+/// `System32` as a renamed `.scr` per Windows' own convention, but the
+/// settings app installs like a normal app in
+/// `%ProgramFiles%\neo_win_pipes\`, so this fallback finds it there even
+/// when this exe is itself running from `System32`.
+fn settings_app_candidates() -> Vec<std::path::PathBuf> {
     let exe_name = if cfg!(windows) {
         "pipes-settings.exe"
     } else {
         "pipes-settings"
     };
-    std::env::current_exe()
-        .ok()?
-        .parent()
-        .map(|dir| dir.join(exe_name))
+    let mut candidates = Vec::new();
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.to_path_buf()))
+    {
+        candidates.push(dir.join(exe_name));
+    }
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        candidates.push(
+            std::path::Path::new(&program_files)
+                .join("neo_win_pipes")
+                .join(exe_name),
+        );
+    }
+    candidates
 }
 
 fn run_configure() {
-    match settings_app_path() {
-        Some(path) if path.exists() => match std::process::Command::new(&path).spawn() {
+    let candidates = settings_app_candidates();
+    match candidates.iter().find(|p| p.exists()) {
+        Some(path) => match std::process::Command::new(path).spawn() {
             Ok(_) => info!(path = %path.display(), "launched pipes-settings"),
             Err(err) => {
                 tracing::error!(?err, path = %path.display(), "failed to launch pipes-settings")
             }
         },
-        Some(path) => {
-            tracing::error!(path = %path.display(), "pipes-settings not found next to this executable")
-        }
-        None => tracing::error!("could not determine this executable's directory"),
+        None => tracing::error!(
+            ?candidates,
+            "pipes-settings not found in any known location"
+        ),
     }
 }
 

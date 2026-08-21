@@ -221,6 +221,48 @@ built. That's why the core/render split earlier in this document isn't
 optional future-proofing — it's what let the Windows wrapper above ship
 as a couple hundred lines instead of a fork of the whole engine.
 
+## Windows installer (Phase 4)
+
+`installer/main.wxs` (built with WiX Toolset v7, `wix build`) installs
+two things to two different, deliberately separate places:
+
+- `pipes-app.exe`, renamed `neo_win_pipes.scr`, into `System32` — where
+  Windows' own "Screen saver" dropdown scans for `.scr` files. There's no
+  way around this location; it's the OS's convention, not a choice we
+  made.
+- `pipes-settings.exe`, into `%ProgramFiles%\neo_win_pipes\` with a Start
+  Menu shortcut — installed like any normal app, not dumped into
+  `System32` alongside the `.scr` just because that would've been easier.
+  This is why `pipes-app`'s `/c` handler
+  (`settings_app_candidates()` in `main.rs`) checks *two* locations, not
+  one: next to itself (dev/testing, both binaries in the same
+  `target/debug`) and this Program Files path (installed).
+
+Deliberately **not** done automatically at install time: selecting
+`neo_win_pipes` as the active screensaver, or touching
+`HKCU\Control Panel\Desktop` at all. Installing only makes it available
+in the dropdown — a real, if small, restraint: the installer's job is to
+put the software where it belongs, not to silently override whatever
+screensaver setting was already there.
+
+Building this needs WiX v7, not the older WiX v3 `cargo-wix` normally
+wraps — v3 needs the .NET Framework 3.5 Windows Feature, which is
+admin-only to enable, while v7 installs per-user as a `dotnet` tool. That
+tradeoff is a real EULA: WiX v7 requires accepting its "Open Source
+Maintenance Fee" terms once (free below a $10,000/year revenue
+threshold, which doesn't apply to this project, but still a genuine
+legal acceptance) — worth knowing since it's the reason the build
+prerequisites in [DEVELOPMENT.md](DEVELOPMENT.md) include an explicit
+`wix eula accept` step rather than a silent one.
+
+Validating the built `.msi` doesn't require an elevated install (which
+would need an interactive UAC click, not automatable): `wix msi
+validate` runs ICE checks (one expected/benign warning, `ICE09`, about
+the `System32` file being "non-permanent" — correct, since uninstall
+should remove it), and `msiexec /a ... TARGETDIR=...` does a non-elevated
+administrative extract that confirms the exact file layout without
+installing anything for real.
+
 ## Logging
 
 Structured, human-readable-first (not JSON-first) `tracing` output, so

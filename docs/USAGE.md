@@ -1,9 +1,8 @@
 # Usage
 
-> **Status**: Phase 3 (Windows) is live — `pipes-app` understands the real
-> Windows screensaver contract now. macOS/Linux aren't installable
-> screensavers yet, and there's no `.msi`/`.pkg`/`.deb` installer on any
-> platform yet — see [ROADMAP.md](ROADMAP.md).
+> **Status**: Phase 4 (Windows) is live — there's a real `.msi` installer.
+> macOS/Linux aren't installable screensavers yet, and there's no
+> `.pkg`/`.deb` installer for them — see [ROADMAP.md](ROADMAP.md).
 
 ## Running the screensaver (dev/manual testing)
 
@@ -38,19 +37,26 @@ cargo run -p pipes-app -- /p 123456       # embeds into HWND 123456 (from anothe
 
 ## Installing it as your actual Windows screensaver
 
-1. Build a release binary: `cargo build --release -p pipes-app -p pipes-settings`.
-2. Copy `target\release\pipes-app.exe`, renamed to e.g. `neo_win_pipes.scr`,
-   **and** `pipes-settings.exe` into the same folder (`/c` needs
-   `pipes-settings.exe` sitting right next to the `.scr`).
-3. To appear in *Settings → Personalization → Lock screen → Screen saver*'s
-   dropdown, that folder needs to be `%WINDIR%\System32` — which requires
-   administrator rights to copy into. **This is a system-wide change, so
-   ask before doing it automatically** rather than having an assistant
-   copy files into `System32` on your behalf. Alternatively, right-click
-   the `.scr` file → *Install* does the same thing through Windows' own
-   UI, without needing a manual admin copy.
-4. Once installed, Windows drives it entirely through the `/s`/`/c`/`/p`
-   contract above — you shouldn't need to touch the command line again.
+Build (or download, once GitHub Releases carries one — see
+[ROADMAP.md](ROADMAP.md)) `neo_win_pipes.msi` — see
+[DEVELOPMENT.md](DEVELOPMENT.md#building-the-windows-installer-msi) for
+how it's built. Then just run it:
+
+1. Double-click `neo_win_pipes.msi`. Windows will prompt for
+   administrator approval (UAC) — installing to `System32` is genuinely a
+   system-wide change, so this prompt is expected and correct, not a bug.
+2. Click through the installer (Welcome → license → Install → Finish).
+   That's it — no manual file copying, no finding `System32` yourself.
+3. Open *Settings → Personalization → Lock screen → Screen saver*, pick
+   "neo_win_pipes" from the dropdown. The installer does **not** select it
+   for you automatically — it only makes it available, the same as
+   installing any other screensaver, so it never silently overrides
+   whatever you had configured before.
+4. A **Pipes Settings** shortcut is added to the Start Menu too, so you
+   can open the live-preview settings drawer any time, independent of the
+   screensaver being active — the same app the `/c` config button opens.
+5. Uninstall from *Settings → Apps* like any other program — this cleanly
+   removes both the `.scr` from `System32` and the settings app.
 
 ### Environment variables
 
@@ -91,9 +97,8 @@ they land, the end state is the same shape as Windows above: select
 "neo_win_pipes" from *System Settings → Screen Saver* (macOS) or
 `xscreensaver-demo`'s hack list (Linux).
 
-## Once Phase 4 (installers) lands
+## Once macOS/Linux installers land
 
-Right now, "installing" the Windows screensaver means the manual copy
-steps above. Phase 4 replaces that with: download a `.msi`/`.pkg`/`.deb`
-from GitHub Releases and run it — no manual file copying or `System32`
-admin steps needed.
+Same shape as Windows above: download a `.pkg`/`.deb` (or AppImage) from
+GitHub Releases and run it — no manual file copying. Not there yet; see
+[ROADMAP.md](ROADMAP.md).

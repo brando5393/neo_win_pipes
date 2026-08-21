@@ -7,13 +7,15 @@ classic Windows "3D Pipes" screensaver — the chrome pipes one, from Windows
 NT 4.0 onward. Goal: an installable, OS-selectable screensaver on all three
 platforms, built on a fully unit-tested Rust simulation core.
 
-**Status: Phase 3 (Windows) — a real, installable Windows screensaver.**
-`pipes-app` understands the actual `/s`/`/c`/`/p <hwnd>` contract Windows
-uses to drive a `.scr`, plus the Phase 2.5 "Pipes Settings" app (live
-preview + settings drawer). macOS/Linux aren't installable screensavers
-yet (Linux has tested argument parsing; macOS is design-only so far — see
-[`docs/ROADMAP.md`](docs/ROADMAP.md) for the honest per-platform
-breakdown and what's next).
+**Status: Phase 4 (Windows) — a real, double-click-installable Windows
+screensaver.** `neo_win_pipes.msi` installs the `.scr` (`/s`/`/c`/`/p
+<hwnd>` contract, fully understood) into `System32` and the "Pipes
+Settings" app (live preview + settings drawer) into Program Files with a
+Start Menu shortcut — no manual file copying, just Settings → Screen
+saver → pick it from the dropdown. macOS/Linux aren't installable
+screensavers yet (Linux has tested argument parsing; macOS is design-only
+so far — see [`docs/ROADMAP.md`](docs/ROADMAP.md) for the honest
+per-platform breakdown and what's next).
 
 ![A window full of colored 3D pipes growing through a grid](docs/screenshots/phase2-first-render-seed3.png)
 
@@ -27,8 +29,9 @@ cargo run -p pipes-settings             # live preview + settings drawer
 ```
 
 See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for prerequisites
-(including a Windows-on-ARM64 build caveat) and
-[`docs/USAGE.md`](docs/USAGE.md) for CLI flags and environment variables.
+(including a Windows-on-ARM64 build caveat and how to build the `.msi`)
+and [`docs/USAGE.md`](docs/USAGE.md) for CLI flags, environment
+variables, and how to install it as your actual screensaver.
 
 ## Documentation
 

@@ -11,10 +11,13 @@ fullscreen demo app. Full context: `docs/RESEARCH.md` (what the original
 did and why), `docs/ARCHITECTURE.md` (how this codebase is structured),
 `docs/ROADMAP.md` (what phase we're in).
 
-**Current phase**: Phase 3, Windows-only so far. `pipes-app` *is* a working
-Windows `.scr` now (`/s`/`/c`/`/p <hwnd>` contract — see
-`screensaver_args.rs`/`winsaver.rs`), on top of Phase 2.5's `pipes-render`
-+ `pipes-settings`. **macOS and Linux are not there yet** — Linux has
+**Current phase**: Phase 4, Windows-only so far. `neo_win_pipes.msi`
+(`installer/main.wxs`, built with WiX v7) is a real, double-click
+installer: `pipes-app.exe` → `System32\neo_win_pipes.scr`,
+`pipes-settings.exe` → Program Files + Start Menu shortcut. On top of
+Phase 3's `.scr` contract (`/s`/`/c`/`/p <hwnd>` — see
+`screensaver_args.rs`/`winsaver.rs`) and Phase 2.5's `pipes-render` +
+`pipes-settings`. **macOS and Linux are not there yet** — Linux has
 tested argument parsing only (`pipes-xscreensaver`), macOS has no code at
 all (design-only in `docs/ROADMAP.md`), both honestly because this project
 has no Mac/Linux machine to build or verify against. Don't assume either
@@ -24,13 +27,21 @@ is installable; check `docs/ROADMAP.md` before claiming otherwise.
 
 ```sh
 cargo build --workspace
-cargo test --workspace              # must pass before any change is done — 49 tests as of Phase 3 (Windows)
+cargo test --workspace              # must pass before any change is done — 49 tests as of Phase 4 (Windows)
 cargo run -p pipes-app -- --seed 1  # the screensaver, dev mode (behaves like /s)
 cargo run -p pipes-app -- /s        # exercise the real Windows contract directly
 cargo run -p pipes-app -- /c        # launches pipes-settings, exits
 cargo run -p pipes-settings         # live preview + settings drawer
 RUST_LOG=debug cargo run -p pipes-app -- --seed 1
 ```
+
+Building the `.msi` needs WiX v7 (a per-user `dotnet` tool, plus a
+one-time EULA acceptance — see
+`docs/DEVELOPMENT.md#building-the-windows-installer-msi`). **Never accept
+a tool's EULA/licensing terms on the user's behalf without asking first**
+— this came up for real with WiX v7's Open Source Maintenance Fee terms;
+free for this project, but still a legal acceptance to check with the
+user about, not something to click through silently.
 
 If linking fails on Windows-on-ARM64, see the caveat in
 `docs/DEVELOPMENT.md` before assuming the code is broken — it's a known
