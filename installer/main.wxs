@@ -55,6 +55,16 @@
                     Description="Live preview and settings for the neo_win_pipes screensaver"
                     Target="[INSTALLFOLDER]pipes-settings.exe"
                     WorkingDirectory="INSTALLFOLDER" />
+          <!-- Programs & Features (Settings -> Apps) already lists and
+               uninstalls neo_win_pipes automatically, which is standard
+               MSI behavior, not something this file has to author. This
+               shortcut is an extra, more discoverable way to get there,
+               for anyone who doesn't think to look in Settings. -->
+          <Shortcut Id="UninstallShortcut"
+                    Name="Uninstall neo_win_pipes"
+                    Description="Remove neo_win_pipes from this computer"
+                    Target="[SystemFolder]msiexec.exe"
+                    Arguments="/x [ProductCode]" />
           <RemoveFolder Id="RemoveAppProgramMenuFolder" On="uninstall" />
           <RegistryValue Root="HKCU"
                           Key="Software\neo_win_pipes"
