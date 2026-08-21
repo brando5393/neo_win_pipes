@@ -8,21 +8,25 @@ NT 4.0 onward. Goal: an installable, OS-selectable screensaver on all three
 platforms, built on a fully unit-tested Rust simulation core.
 
 **Status: Phase 4 (Windows) — a real, double-click-installable Windows
-screensaver.** `neo_win_pipes.msi` installs the `.scr` (`/s`/`/c`/`/p
-<hwnd>` contract, fully understood) into `System32` and the "Pipes
-Settings" app (live preview + settings drawer) into Program Files with a
-Start Menu shortcut — no manual file copying, just Settings → Screen
-saver → pick it from the dropdown. macOS/Linux aren't installable
-screensavers yet (Linux has tested argument parsing; macOS is design-only
-so far — see [`docs/ROADMAP.md`](docs/ROADMAP.md) for the honest
-per-platform breakdown and what's next).
+screensaver that updates itself.** `neo_win_pipes.msi` installs the `.scr`
+(`/s`/`/c`/`/p <hwnd>` contract, fully understood) into `System32` and the
+"Pipes Settings" app (live preview + settings drawer) into Program Files
+with Start Menu shortcuts (including uninstall) — no manual file copying.
+Pushing a version tag publishes a new release automatically, and
+installed copies notice and offer a one-click update — free, no paid
+update host or background service, just GitHub's own Releases API (one
+UAC prompt per update is unavoidable, since the screensaver lives in
+`System32`). macOS/Linux aren't installable screensavers yet (Linux has
+tested argument parsing; macOS is design-only so far — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md) for the honest per-platform
+breakdown and what's next).
 
 ![A window full of colored 3D pipes growing through a grid](docs/screenshots/phase2-first-render-seed3.png)
 
 ## Quick start
 
 ```sh
-cargo test --workspace                  # run the full test suite (49 tests)
+cargo test --workspace                  # run the full test suite (55 tests)
 cargo run -p pipes-app -- --seed 1      # the screensaver itself
 cargo run -p pipes-app -- /s            # ...or exercise the real Windows contract directly
 cargo run -p pipes-settings             # live preview + settings drawer

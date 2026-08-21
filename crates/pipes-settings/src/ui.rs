@@ -8,6 +8,8 @@ use egui::{Context, RichText, Slider};
 use pipes_core::{Color, PipeStyleMode};
 use pipes_render::AppConfig;
 
+use crate::update::AvailableUpdate;
+
 pub struct Outcome {
     /// A change that affects the simulation itself (style, count, palette,
     /// grid size, reset threshold) — the live-preview `Scene` must be
@@ -18,6 +20,12 @@ pub struct Outcome {
     /// speed) — takes effect on the very next frame with no rebuild.
     pub other_changed: bool,
     pub reset_to_defaults: bool,
+    /// "Update Now" clicked on the update banner — `main.rs` downloads and
+    /// launches the installer for the `AvailableUpdate` it already has.
+    pub update_now_clicked: bool,
+    /// "Dismiss" clicked on the update banner — hides it for the rest of
+    /// this session (doesn't disable future checks/relaunches).
+    pub update_dismissed: bool,
     pub preview_rect: egui::Rect,
 }
 
@@ -27,6 +35,8 @@ impl Default for Outcome {
             sim_changed: false,
             other_changed: false,
             reset_to_defaults: false,
+            update_now_clicked: false,
+            update_dismissed: false,
             preview_rect: egui::Rect::NOTHING,
         }
     }
@@ -38,8 +48,37 @@ impl Outcome {
     }
 }
 
-pub fn draw(ctx: &Context, config: &mut AppConfig) -> Outcome {
+pub fn draw(
+    ctx: &Context,
+    config: &mut AppConfig,
+    update: Option<&AvailableUpdate>,
+    downloading: bool,
+) -> Outcome {
     let mut outcome = Outcome::default();
+
+    if let Some(update) = update {
+        egui::TopBottomPanel::top("update_banner").show(ctx, |ui| {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(format!("A new version (v{}) is available.", update.version));
+                if downloading {
+                    ui.add(egui::Spinner::new());
+                    ui.label(RichText::new("Downloading and launching installer…").weak());
+                } else {
+                    if ui.button("Update Now").clicked() {
+                        outcome.update_now_clicked = true;
+                    }
+                    if ui.link("Release notes").clicked() {
+                        open_in_browser(&update.release_page_url);
+                    }
+                    if ui.small_button("Dismiss").clicked() {
+                        outcome.update_dismissed = true;
+                    }
+                }
+            });
+            ui.add_space(4.0);
+        });
+    }
 
     egui::SidePanel::right("settings_drawer")
         .resizable(true)
@@ -179,6 +218,25 @@ pub fn draw(ctx: &Context, config: &mut AppConfig) -> Outcome {
         .inner;
 
     outcome
+}
+
+/// Opens a URL in the system's default browser. Best-effort: a failure
+/// here (no browser configured, `cmd`/`open`/`xdg-open` missing) just
+/// means the link doesn't open, not something worth surfacing as an
+/// error to the user over.
+fn open_in_browser(url: &str) {
+    let result = if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", url])
+            .spawn()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(url).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(url).spawn()
+    };
+    if let Err(err) = result {
+        tracing::warn!(?err, url, "failed to open release notes link");
+    }
 }
 
 fn neon_palette() -> Vec<Color> {

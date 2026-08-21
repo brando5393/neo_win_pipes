@@ -4,6 +4,7 @@
 //! changes made here take effect the next time the screensaver runs (and
 //! are visible immediately in this window's own preview).
 
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -16,6 +17,34 @@ use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 
 mod ui;
+mod update;
+
+/// Kicks off the update check on a background thread so it never delays
+/// showing the window, and can't hang the app if GitHub is slow/down —
+/// `check_for_update` itself already treats any failure as "no update"
+/// (see update.rs), so this just adds "don't block the UI thread either."
+fn spawn_update_check() -> mpsc::Receiver<Option<update::AvailableUpdate>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let current = semver::Version::parse(env!("CARGO_PKG_VERSION"))
+            .expect("CARGO_PKG_VERSION is valid semver");
+        let _ = tx.send(update::check_for_update(&current));
+    });
+    rx
+}
+
+/// Downloads and launches the installer on a background thread, then
+/// exits this process — an MSI upgrade needs pipes-settings.exe not to be
+/// running so its own file can be replaced cleanly.
+fn spawn_update_install(available: update::AvailableUpdate) {
+    std::thread::spawn(move || match update::download_installer(&available) {
+        Ok(path) => match update::launch_installer(&path) {
+            Ok(_) => std::process::exit(0),
+            Err(err) => tracing::error!(?err, "failed to launch downloaded installer"),
+        },
+        Err(err) => tracing::error!(?err, "failed to download update"),
+    });
+}
 
 fn init_logging() {
     tracing_subscriber::fmt()
@@ -64,6 +93,10 @@ fn main() {
 
     let start = Instant::now();
     let mut last_tick = Instant::now();
+    let update_check_rx = spawn_update_check();
+    let mut available_update: Option<update::AvailableUpdate> = None;
+    let mut update_dismissed = false;
+    let mut update_downloading = false;
 
     event_loop
         .run(move |event, elwt| match event {
@@ -79,6 +112,13 @@ fn main() {
                     WindowEvent::CloseRequested => elwt.exit(),
                     WindowEvent::Resized(size) => renderer.resize(size.width, size.height),
                     WindowEvent::RedrawRequested => {
+                        if let Ok(result) = update_check_rx.try_recv() {
+                            if let Some(update) = &result {
+                                info!(version = %update.version, "update available");
+                            }
+                            available_update = result;
+                        }
+
                         let tick_interval =
                             Duration::from_millis(app_config.tick_interval_ms as u64);
                         if last_tick.elapsed() >= tick_interval {
@@ -90,13 +130,28 @@ fn main() {
                             }
                         }
 
+                        let update_banner = if update_dismissed {
+                            None
+                        } else {
+                            available_update.as_ref()
+                        };
                         let raw_input = egui_state.take_egui_input(&window);
                         let mut outcome = ui::Outcome::default();
                         let full_output = egui_ctx.run(raw_input, |ctx| {
-                            outcome = ui::draw(ctx, &mut app_config);
+                            outcome =
+                                ui::draw(ctx, &mut app_config, update_banner, update_downloading);
                         });
                         egui_state.handle_platform_output(&window, full_output.platform_output);
 
+                        if outcome.update_dismissed {
+                            update_dismissed = true;
+                        }
+                        if outcome.update_now_clicked {
+                            if let Some(update) = available_update.clone() {
+                                update_downloading = true;
+                                spawn_update_install(update);
+                            }
+                        }
                         if outcome.reset_to_defaults {
                             app_config = AppConfig::default();
                         }

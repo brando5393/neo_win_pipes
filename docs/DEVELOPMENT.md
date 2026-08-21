@@ -146,6 +146,32 @@ The actual elevated install (`msiexec /i ...`, or just double-clicking the
 `.msi`) needs to be done interactively by someone who can approve the UAC
 prompt.
 
+## Cutting a release
+
+`.github/workflows/release.yml` does the rest once you push a tag:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+That single tag drives everything: CI patches `Cargo.toml`'s
+`[workspace.package]` version to `0.2.0` (so the binaries' embedded
+`CARGO_PKG_VERSION` matches), runs the full test suite, builds release
+binaries and the `.msi` (`-d ProductVersion=0.2.0`, so the installer's
+version matches too), and publishes a GitHub Release with the `.msi`
+attached. This is also what `pipes-settings`' in-app update checker
+watches for — see
+[ARCHITECTURE.md](ARCHITECTURE.md#auto-update-pipes-settingsupdate) — so
+a pushed tag is the entire "ship an update to everyone who's installed
+this" step, not a separate manual upload.
+
+Tag format matters: it must match `v*.*.*` (e.g. `v1.2.3`) both to
+trigger the workflow and because `pipes-settings::update` strips the
+leading `v` and parses the rest as semver — a malformed tag either won't
+trigger a release or won't be recognized as an update by installed
+copies.
+
 ## Commit / PR conventions
 
 - Every change to simulation logic ships with its tests in the same

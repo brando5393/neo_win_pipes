@@ -263,6 +263,64 @@ should remove it), and `msiexec /a ... TARGETDIR=...` does a non-elevated
 administrative extract that confirms the exact file layout without
 installing anything for real.
 
+An "Uninstall neo_win_pipes" shortcut sits next to "Pipes Settings" in the
+Start Menu, invoking `msiexec /x [ProductCode]` — genuinely just a more
+discoverable path to what Programs & Features (Settings → Apps) already
+does automatically for any MSI-installed product; not something this file
+had to build from scratch.
+
+## Auto-update (`pipes-settings::update`)
+
+The goal, stated plainly: updates should reach installed copies without a
+paid update host, without a background service, and without a fully
+silent (zero-prompt) mechanism that isn't actually achievable here — the
+screensaver lives in `System32`, so *any* update touching it needs one UAC
+prompt, same as the original install. What's built is the realistic
+version of "automatic": `pipes-settings` checks in the background, the
+human clicks once.
+
+- On startup, `pipes-settings` spawns a background thread
+  (`spawn_update_check` in `main.rs`) that calls
+  `update::check_for_update`, which GETs
+  `https://api.github.com/repos/brando5393/neo_win_pipes/releases/latest`
+  and compares its tag against `env!("CARGO_PKG_VERSION")` via `semver`.
+  Any failure — offline, GitHub down, rate-limited, no releases yet —
+  yields `None`, silently; a background version check failing is correct,
+  boring behavior, not something that should ever interrupt using the
+  app. The JSON-parsing-and-comparison logic (`parse_update`) is pure and
+  unit-tested against sample API responses; the actual HTTP call isn't
+  (hitting a real external API on every `cargo test` run would be slow
+  and flaky, not a good test).
+- If a newer version with a `.msi` release asset is found, the UI shows a
+  dismissible top banner: "A new version is available" + **Update Now** +
+  **Release notes** + **Dismiss**. Clicking **Update Now** downloads the
+  `.msi` to a temp file and launches `msiexec /i ... /passive /norestart`
+  (skips the wizard's Welcome/License/Finish clicks since the user
+  already saw those on first install — but not the UAC prompt, which
+  can't be skipped), then exits `pipes-settings` itself so the running
+  `.exe` isn't locked while its own file gets replaced.
+- This only checks when `pipes-settings` happens to be open — there's no
+  background service polling on a schedule. Given this is a screensaver
+  utility people open occasionally to tweak settings, that's judged a
+  reasonable cadence; revisit if it isn't in practice.
+
+### The supply side: `.github/workflows/release.yml`
+
+The updater above only works if there's actually a newer GitHub Release
+to find. Pushing a tag matching `v*.*.*` triggers a workflow that: patches
+`Cargo.toml`'s `[workspace.package]` version to match the tag (so the
+binaries' `CARGO_PKG_VERSION` — what the updater compares against — is
+never out of sync with the release that ships them), runs the full test
+suite, builds release binaries and the `.msi` (with
+`-d ProductVersion=<tag>`, so the installer's version matches too), and
+publishes a GitHub Release with the `.msi` attached via
+`softprops/action-gh-release`. One version number, sourced from one git
+tag, flows into the compiled binary, the installer, and the release page
+— not three things to keep in sync by hand.
+
+Cutting a release is then just: `git tag v0.2.0 && git push origin
+v0.2.0`. See [DEVELOPMENT.md](DEVELOPMENT.md) for the full step.
+
 ## Logging
 
 Structured, human-readable-first (not JSON-first) `tracing` output, so

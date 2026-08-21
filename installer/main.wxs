@@ -21,9 +21,18 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
+  <!-- ProductVersion is passed at release-build time (-d ProductVersion=
+       X.Y.Z), sourced from the same git tag that triggers the release
+       build (see .github/workflows/release.yml), so the installer's
+       version, the compiled binaries' CARGO_PKG_VERSION, and the GitHub
+       Release tag are all one number, not three to keep in sync by hand.
+       Falls back to 0.1.0 for local dev builds that don't pass it. -->
+  <?ifndef ProductVersion?>
+  <?define ProductVersion = "0.1.0" ?>
+  <?endif?>
   <Package Name="neo_win_pipes"
            Manufacturer="Brandon Williams"
-           Version="0.1.0"
+           Version="$(var.ProductVersion)"
            UpgradeCode="eb4afeb2-7b8d-4d35-9e06-92493acafe56"
            Scope="perMachine">
 

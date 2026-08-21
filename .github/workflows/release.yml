@@ -1,0 +1,93 @@
+name: Release
+
+# Triggered by pushing a version tag (e.g. `git tag v0.2.0 && git push origin
+# v0.2.0`) — this is the "supply side" of the in-app updater in
+# pipes-settings: it checks GitHub's Releases API for a newer tag, so a
+# release only actually reaches installed copies once this workflow
+# publishes one. See docs/ARCHITECTURE.md for the full picture.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Set workspace version to match the tag
+        shell: pwsh
+        run: |
+          # Only touch the [workspace.package] version line -- a blind
+          # find/replace on `version = "..."` would also corrupt the
+          # inline `version = "..."` fields inside [workspace.dependencies]
+          # entries like `serde = { version = "1", ... }`.
+          $lines = Get-Content Cargo.toml
+          $inWorkspacePackage = $false
+          $newVersion = "${{ steps.version.outputs.version }}"
+          $result = foreach ($line in $lines) {
+            if ($line -match '^\[.*\]') {
+              $inWorkspacePackage = ($line.Trim() -eq '[workspace.package]')
+            }
+            if ($inWorkspacePackage -and $line -match '^version\s*=') {
+              "version = `"$newVersion`""
+            } else {
+              $line
+            }
+          }
+          $result | Set-Content Cargo.toml
+          Get-Content Cargo.toml | Select-String '^version'
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run test suite
+        run: cargo test --workspace --verbose
+
+      - name: Build release binaries
+        run: cargo build --release -p pipes-app -p pipes-settings --verbose
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install WiX v7
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix
+          wix eula accept wix7
+          wix extension add WixToolset.UI.wixext
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          wix build installer\main.wxs -ext WixToolset.UI.wixext `
+            -d PipesAppExe="target\release\pipes-app.exe" `
+            -d PipesSettingsExe="target\release\pipes-settings.exe" `
+            -d ProductVersion="${{ steps.version.outputs.version }}" `
+            -o installer\out\neo_win_pipes.msi
+
+      - name: Validate MSI
+        shell: pwsh
+        run: wix msi validate installer\out\neo_win_pipes.msi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/out/neo_win_pipes.msi
+          generate_release_notes: true

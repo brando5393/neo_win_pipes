@@ -176,9 +176,26 @@ for the full writeup per platform.
       find `pipes-settings.exe` in its installed Program Files location,
       not just next to the running exe — needed since the `.scr` and the
       settings app now live in different directories once installed.
+- [x] A discoverable "Uninstall neo_win_pipes" Start Menu shortcut
+      (`msiexec /x [ProductCode]`) alongside "Pipes Settings" — on top of
+      the automatic Programs & Features listing every MSI gets for free.
+- [x] Auto-update: `pipes-settings` checks GitHub Releases in the
+      background and offers a one-click "Update Now" when a newer `.msi`
+      is published — see [ARCHITECTURE.md](ARCHITECTURE.md#auto-update-pipes-settingsupdate)
+      for the full design and why a fully silent updater isn't realistic
+      given the `System32` requirement (still one UAC prompt per update).
+      Free: no paid update host, no background service — just GitHub's
+      own Releases API.
+- [x] `.github/workflows/release.yml`: pushing a `v*.*.*` tag now builds
+      and publishes the `.msi` to a GitHub Release automatically — the
+      "supply side" the updater above depends on. One version number
+      (the git tag) flows into `Cargo.toml`, the compiled binaries'
+      `CARGO_PKG_VERSION`, and the installer's `ProductVersion`, so
+      there's nothing to keep in sync by hand across three places.
 - [ ] Not yet done: code signing (currently unsigned — Windows SmartScreen
-      will warn on first run until there's a code-signing certificate);
-      CI doesn't build this on tagged releases yet (still manual).
+      will warn on first run/update until there's a code-signing
+      certificate, which costs money — deliberately out of scope for a
+      free hobby project unless that changes).
 
 ### macOS / Linux — not started
 
@@ -187,11 +204,11 @@ for the full writeup per platform.
       — blocked on the `.saver` itself not existing yet (Phase 3).
 - [ ] Linux: `.deb` and an AppImage — blocked on the X11 embedding not
       existing yet (Phase 3).
-- [ ] GitHub Actions builds all three on tagged releases and attaches them
-      to a GitHub Release, so the end state is: pick your OS, download one
-      file, install it, select "neo_win_pipes" in your screensaver
-      settings. CI already builds/tests on all three OSes per-push (see
-      Phase 1) — this would extend that to produce release artifacts.
+- [ ] `.github/workflows/release.yml` only builds the Windows `.msi` so
+      far. Once the `.saver`/`.deb`/AppImage exist, add matching jobs
+      there (same tag trigger, same one-version-number-from-the-tag
+      approach) so the end state is: pick your OS, download one file,
+      install it, select "neo_win_pipes" in your screensaver settings.
 
 ## Explicitly out of scope for now
 

@@ -83,6 +83,19 @@ The config file lives at the OS's standard per-user config location (e.g.
 shape if you want to hand-edit it (it's validated/clamped on load either
 way, so a bad edit can't break the app).
 
+### Update notifications
+
+Pipes Settings checks GitHub for a newer release in the background each
+time you open it. If one's available, a banner appears at the top:
+**Update Now** downloads and launches the new installer (one UAC prompt,
+same as installing — that's a real Windows security boundary, not
+something an update can skip), **Release notes** opens what changed in
+your browser, and **Dismiss** hides the banner for this session only
+(it'll check again next time you open the app). See
+[ARCHITECTURE.md](ARCHITECTURE.md#auto-update-pipes-settingsupdate) for
+why this is the free, no-service, one-click version of "automatic
+updates" rather than a fully silent one.
+
 ### On Windows-on-ARM64
 
 If `cargo run` fails to link, see the toolchain caveat in

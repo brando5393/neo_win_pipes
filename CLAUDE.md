@@ -14,7 +14,12 @@ did and why), `docs/ARCHITECTURE.md` (how this codebase is structured),
 **Current phase**: Phase 4, Windows-only so far. `neo_win_pipes.msi`
 (`installer/main.wxs`, built with WiX v7) is a real, double-click
 installer: `pipes-app.exe` → `System32\neo_win_pipes.scr`,
-`pipes-settings.exe` → Program Files + Start Menu shortcut. On top of
+`pipes-settings.exe` → Program Files + Start Menu shortcuts (including
+uninstall). `pipes-settings::update` checks GitHub Releases in the
+background and offers a one-click update; `.github/workflows/release.yml`
+publishes a release (and the `.msi`) whenever a `v*.*.*` tag is pushed —
+that tag is the single source of truth for the version that ends up
+embedded in the binaries, the installer, and the release page. On top of
 Phase 3's `.scr` contract (`/s`/`/c`/`/p <hwnd>` — see
 `screensaver_args.rs`/`winsaver.rs`) and Phase 2.5's `pipes-render` +
 `pipes-settings`. **macOS and Linux are not there yet** — Linux has
@@ -27,13 +32,18 @@ is installable; check `docs/ROADMAP.md` before claiming otherwise.
 
 ```sh
 cargo build --workspace
-cargo test --workspace              # must pass before any change is done — 49 tests as of Phase 4 (Windows)
+cargo test --workspace              # must pass before any change is done — 55 tests as of Phase 4 (Windows)
 cargo run -p pipes-app -- --seed 1  # the screensaver, dev mode (behaves like /s)
 cargo run -p pipes-app -- /s        # exercise the real Windows contract directly
 cargo run -p pipes-app -- /c        # launches pipes-settings, exits
-cargo run -p pipes-settings         # live preview + settings drawer
+cargo run -p pipes-settings         # live preview + settings drawer + update checker
 RUST_LOG=debug cargo run -p pipes-app -- --seed 1
 ```
+
+Cutting a release: `git tag vX.Y.Z && git push origin vX.Y.Z` — see
+`docs/DEVELOPMENT.md#cutting-a-release`. Don't hand-edit
+`Cargo.toml`'s `[workspace.package]` version for a release; the release
+workflow derives it from the tag.
 
 Building the `.msi` needs WiX v7 (a per-user `dotnet` tool, plus a
 one-time EULA acceptance — see
