@@ -10,6 +10,14 @@
 //! mode, any key press, click, or mouse movement also quits, matching how
 //! every real screensaver behaves.
 
+// Debug builds keep the console (so `cargo run`/`tracing` output is visible
+// in the terminal); release builds drop it. Without this, Rust defaults to
+// the console subsystem on Windows for every binary, so both `/s` and `/c`
+// pop up a visible console window that comes to the foreground — and
+// closing that console window sends its default control handler a close
+// event that kills this whole process, not just the console.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod screensaver_args;
 #[cfg(windows)]
 mod winsaver;
@@ -70,12 +78,23 @@ fn settings_app_candidates() -> Vec<std::path::PathBuf> {
     {
         candidates.push(dir.join(exe_name));
     }
-    if let Ok(program_files) = std::env::var("ProgramFiles") {
-        candidates.push(
-            std::path::Path::new(&program_files)
-                .join("neo_win_pipes")
-                .join(exe_name),
-        );
+    // Check every "Program Files" variant, not just %ProgramFiles%: which
+    // one that resolves to depends on both this process's bitness and the
+    // installer's declared platform, and those two have disagreed before
+    // (the release MSI was built without `-arch x64`, so WiX defaulted to
+    // x86 and installed into "Program Files (x86)" while this native
+    // 64-bit process's %ProgramFiles% pointed at plain "Program Files" —
+    // the real cause of a real "Settings doesn't open" bug). Checking all
+    // three means a future build/installer mismatch degrades to "slightly
+    // redundant lookup" instead of "silently broken".
+    for var in ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"] {
+        if let Ok(program_files) = std::env::var(var) {
+            candidates.push(
+                std::path::Path::new(&program_files)
+                    .join("neo_win_pipes")
+                    .join(exe_name),
+            );
+        }
     }
     candidates
 }

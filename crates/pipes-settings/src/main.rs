@@ -4,6 +4,14 @@
 //! changes made here take effect the next time the screensaver runs (and
 //! are visible immediately in this window's own preview).
 
+// Debug builds keep the console (so `cargo run`/`tracing` output is visible
+// in the terminal); release builds drop it. Without this, Rust defaults to
+// the console subsystem on Windows for every binary, so launching this app
+// pops up a visible console window that comes to the foreground — and
+// closing that console window sends its default control handler a close
+// event that kills this whole process, not just the console.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

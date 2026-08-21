@@ -117,11 +117,17 @@ cargo build --release -p pipes-app -p pipes-settings
 
 $env:Path = "$env:USERPROFILE\.dotnet;$env:USERPROFILE\.dotnet\tools;" + $env:Path
 $env:DOTNET_ROOT = "$env:USERPROFILE\.dotnet"
-wix build installer\main.wxs -ext WixToolset.UI.wixext `
+wix build installer\main.wxs -ext WixToolset.UI.wixext -arch x64 `
   -d PipesAppExe="target\release\pipes-app.exe" `
   -d PipesSettingsExe="target\release\pipes-settings.exe" `
   -o installer\out\neo_win_pipes.msi
 ```
+
+`-arch x64` is required, not optional: `cargo build --release` produces
+native 64-bit binaries, and without it WiX defaults to x86, silently
+installing into the wrong `Program Files` directory (see the "Settings
+button doesn't open" entry in `docs/ROADMAP.md`'s known-issues history for
+the real bug this caused).
 
 ### Validating the `.msi` without actually installing it
 

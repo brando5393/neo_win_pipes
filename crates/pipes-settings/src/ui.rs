@@ -85,6 +85,11 @@ pub fn draw(
         .default_width(360.0)
         .min_width(300.0)
         .show(ctx, |ui| {
+            // The settings drawer has grown past a single 760px-tall window
+            // (dissolve, teapot, and future sections push later content off
+            // the bottom) — without this, overflow is silently clipped with
+            // no scrollbar and no error, not just visually cramped.
+            egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading("Pipes Settings");
             ui.label(RichText::new("Live preview updates as you adjust these.").weak());
             ui.separator();
@@ -292,6 +297,7 @@ pub fn draw(
                         .small(),
                 );
             }
+            });
         });
 
     // Frame::none() is essential here: CentralPanel's default frame paints

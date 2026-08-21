@@ -42,7 +42,22 @@
     <ui:WixUI Id="WixUI_Minimal" />
     <WixVariable Id="WixUILicenseRtf" Value="installer\license.rtf" />
 
-    <StandardDirectory Id="ProgramFilesFolder">
+    <!-- Both binaries embed this same icon at compile time (see
+         build.rs + winres in crates/pipes-app and crates/pipes-settings),
+         so Start Menu/taskbar/window-title icons come from the .exe itself
+         automatically. ARPPRODUCTICON is the one place that isn't
+         exe-derived: it's what Settings -> Apps / Programs and Features
+         shows next to the listing, and needs to be set explicitly. -->
+    <Icon Id="AppIcon.ico" SourceFile="assets\icon\windows\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+
+    <!-- ProgramFiles64Folder / System64Folder, not the plain (32-bit)
+         ProgramFilesFolder / SystemFolder: this package is built with
+         -arch x64 (see release.yml), which marks every Component here as
+         a 64-bit component. ICE80 rejects a 64-bit component sitting under
+         a 32-bit standard directory — caught by actually running
+         `wix msi validate` locally, not by reading the schema. -->
+    <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="neo_win_pipes">
         <Component Id="PipesSettingsExe" Guid="4f1b6f9a-2b7e-4a1a-9a3a-1c9a2b6f7e10">
           <File Id="PipesSettingsExeFile" Source="$(var.PipesSettingsExe)" KeyPath="yes" />
@@ -50,7 +65,7 @@
       </Directory>
     </StandardDirectory>
 
-    <StandardDirectory Id="SystemFolder">
+    <StandardDirectory Id="System64Folder">
       <Component Id="PipesScr" Guid="9c2e6a4d-8b1f-4e3c-8a2d-5f6b7c8d9e0a">
         <File Id="PipesScrFile" Source="$(var.PipesAppExe)" Name="neo_win_pipes.scr" KeyPath="yes" />
       </Component>
@@ -63,7 +78,8 @@
                     Name="Pipes Settings"
                     Description="Live preview and settings for the neo_win_pipes screensaver"
                     Target="[INSTALLFOLDER]pipes-settings.exe"
-                    WorkingDirectory="INSTALLFOLDER" />
+                    WorkingDirectory="INSTALLFOLDER"
+                    Icon="AppIcon.ico" />
           <!-- Programs & Features (Settings -> Apps) already lists and
                uninstalls neo_win_pipes automatically, which is standard
                MSI behavior, not something this file has to author. This
@@ -73,7 +89,8 @@
                     Name="Uninstall neo_win_pipes"
                     Description="Remove neo_win_pipes from this computer"
                     Target="[SystemFolder]msiexec.exe"
-                    Arguments="/x [ProductCode]" />
+                    Arguments="/x [ProductCode]"
+                    Icon="AppIcon.ico" />
           <RemoveFolder Id="RemoveAppProgramMenuFolder" On="uninstall" />
           <RegistryValue Root="HKCU"
                           Key="Software\neo_win_pipes"

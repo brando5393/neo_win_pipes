@@ -4,6 +4,7 @@ description = "Standalone settings app: a live pipes preview alongside a setting
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [[bin]]
 name = "pipes-settings"
@@ -40,3 +41,6 @@ rfd = { version = "0.14", default-features = false, features = ["xdg-portal", "a
 # of ours actually calling zbus.
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "4", default-features = false, features = ["async-io"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

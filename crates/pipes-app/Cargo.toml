@@ -4,6 +4,7 @@ description = "The actual screensaver: a fullscreen-friendly window that loads A
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [[bin]]
 name = "pipes-app"
@@ -21,3 +22,6 @@ raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

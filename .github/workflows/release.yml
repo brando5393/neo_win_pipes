@@ -76,7 +76,16 @@ jobs:
       - name: Build MSI
         shell: pwsh
         run: |
-          wix build installer\main.wxs -ext WixToolset.UI.wixext `
+          # -arch x64 is required, not cosmetic: without it WiX v7 defaults
+          # to x86, which resolves ProgramFilesFolder (INSTALLFOLDER's
+          # parent) to "Program Files (x86)". cargo build --release on this
+          # runner produces native 64-bit binaries, and a native 64-bit
+          # process's %ProgramFiles% resolves to "Program Files" (no
+          # "(x86)") — so pipes-app.exe's settings_app_candidates() was
+          # looking in the wrong folder for the real, x86-installed
+          # pipes-settings.exe. This is the actual cause of "Settings
+          # doesn't open" from the screensaver dialog after a real install.
+          wix build installer\main.wxs -ext WixToolset.UI.wixext -arch x64 `
             -d PipesAppExe="target\release\pipes-app.exe" `
             -d PipesSettingsExe="target\release\pipes-settings.exe" `
             -d ProductVersion="${{ steps.version.outputs.version }}" `
