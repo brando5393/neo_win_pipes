@@ -61,17 +61,19 @@ available. The fastest fix, without downloading the (large) ARM64 C++
 Build Tools component, is to build under x64 emulation instead:
 
 ```powershell
+# One-time setup:
 rustup target add x86_64-pc-windows-msvc
 rustup toolchain install stable-x86_64-pc-windows-msvc --force-non-host
 rustup override set stable-x86_64-pc-windows-msvc   # sets this per-directory, doesn't affect other projects
+```
 
-# Load the x64 (not arm64) MSVC dev environment before building/testing:
-$vcvars = "C:\BuildTools\VC\Auxiliary\Build\vcvarsall.bat"   # adjust path to your VS install
-cmd /c "`"$vcvars`" x64 >nul 2>&1 && set" | Out-File "$env:TEMP\vcenv.txt" -Encoding utf8
-Get-Content "$env:TEMP\vcenv.txt" | Where-Object { $_ -match "^(PATH|LIB|INCLUDE|LIBPATH)=" } | ForEach-Object {
-  $i = $_.IndexOf('='); Set-Item "env:$($_.Substring(0,$i))" $_.Substring($i+1)
-}
+Then, **once per new PowerShell session**, load the x64 (not arm64) MSVC
+dev environment before building/testing. `scripts/dev-shell.ps1` automates
+this (it locates `vcvarsall.bat` and dot-sources the resulting `PATH`/
+`LIB`/`INCLUDE`/`LIBPATH`):
 
+```powershell
+. .\scripts\dev-shell.ps1
 cargo test --workspace
 ```
 
