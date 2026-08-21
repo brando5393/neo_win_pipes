@@ -42,6 +42,13 @@ pub struct SimConfig {
     /// non-empty; `Scene::new` falls back to `default_palette()` if given
     /// an empty list (e.g. from a hand-edited config file).
     pub palette: Vec<Color>,
+    /// Validated by `pipes.sh`'s `-K` flag (see `docs/FEATURE_IDEAS.md`):
+    /// when `false` (default, matching the original's — and `pipes.sh`'s
+    /// own default — fully-random look), each spawn independently rolls a
+    /// random color/style. When `true`, both cycle deterministically by
+    /// spawn order instead, so every generation reproduces the *same*
+    /// color/style pattern rather than a fresh random one each reset.
+    pub lock_colors_across_resets: bool,
     /// When the grid fills up, pipes shrink away over
     /// `dissolve_duration_ticks` before the scene clears and restarts —
     /// matching the original screensaver's transition — rather than
@@ -65,6 +72,7 @@ impl Default for SimConfig {
             spawn_attempts: 64,
             style_mode: PipeStyleMode::default(),
             palette: default_palette(),
+            lock_colors_across_resets: false,
             dissolve_on_reset: true,
             dissolve_duration_ticks: 15,
         }
@@ -149,6 +157,10 @@ pub struct Scene {
     rng: Pcg32,
     tick: u64,
     phase: ScenePhase,
+    /// Resets to 0 each generation (see `reset`); used instead of `rng`
+    /// for color/style selection when `lock_colors_across_resets` is on,
+    /// so every generation reproduces the same pattern by spawn order.
+    spawn_index_this_generation: u32,
 }
 
 impl Scene {
@@ -163,6 +175,7 @@ impl Scene {
             rng: Pcg32::new(seed, 0x0a02_bdbf_7bb3_c0a7),
             tick: 0,
             phase: ScenePhase::Growing,
+            spawn_index_this_generation: 0,
         }
     }
 
@@ -297,26 +310,42 @@ impl Scene {
                 continue;
             }
             let dir = Direction::ALL[self.rng.gen_range(0..Direction::ALL.len())];
+            let spawn_index = self.spawn_index_this_generation;
+            let locked = self.config.lock_colors_across_resets;
             let style = match self.config.style_mode {
                 PipeStyleMode::Round => PipeStyle::Round,
                 PipeStyleMode::Square => PipeStyle::Square,
                 PipeStyleMode::Mixed => {
-                    if self.rng.gen_bool(0.5) {
+                    let round = if locked {
+                        spawn_index.is_multiple_of(2)
+                    } else {
+                        self.rng.gen_bool(0.5)
+                    };
+                    if round {
                         PipeStyle::Round
                     } else {
                         PipeStyle::Square
                     }
                 }
             };
+            let palette_index = |rng: &mut Pcg32, len: usize| {
+                if locked {
+                    spawn_index as usize % len
+                } else {
+                    rng.gen_range(0..len)
+                }
+            };
             let color = if self.config.palette.is_empty() {
                 let fallback = default_palette();
-                fallback[self.rng.gen_range(0..fallback.len())]
+                let i = palette_index(&mut self.rng, fallback.len());
+                fallback[i]
             } else {
-                let palette = &self.config.palette;
-                palette[self.rng.gen_range(0..palette.len())]
+                let i = palette_index(&mut self.rng, self.config.palette.len());
+                self.config.palette[i]
             };
             let id = self.next_id;
             self.next_id += 1;
+            self.spawn_index_this_generation += 1;
             self.grid.occupy(p);
             debug!(pipe_id = id, ?p, ?dir, ?style, "pipe spawned");
             self.pipes.push(Pipe::new(id, style, color, p, dir));
@@ -329,6 +358,7 @@ impl Scene {
         self.grid.clear();
         self.pipes.clear();
         self.phase = ScenePhase::Growing;
+        self.spawn_index_this_generation = 0;
     }
 }
 
@@ -499,5 +529,66 @@ mod tests {
         assert!(saw_reset);
         assert_eq!(scene.grid().occupied_count(), 0);
         assert_eq!(scene.dissolve_progress(), None);
+    }
+
+    #[test]
+    fn locked_colors_reproduce_the_same_pattern_every_generation() {
+        let config = SimConfig {
+            lock_colors_across_resets: true,
+            dissolve_on_reset: false,
+            style_mode: PipeStyleMode::Mixed,
+            ..tiny_config()
+        };
+        let mut scene = Scene::new(config, 7);
+
+        let mut generations: Vec<Vec<(PipeStyle, Color)>> = vec![Vec::new()];
+        for _ in 0..500 {
+            let events = scene.step();
+            // A spawn and a reset can land in the same tick (a fresh spawn's
+            // cell can itself tip occupancy over the threshold); by the
+            // time `step()` returns, `reset()` has already cleared
+            // `self.pipes`, so that spawn's data isn't recoverable from
+            // `scene.pipes()` anymore. Skip such ticks rather than inspect
+            // pipes that are already gone — there are plenty of other
+            // ticks to gather the pattern from.
+            let reset_this_tick = events.contains(&SceneEvent::SceneReset);
+            for event in &events {
+                if let SceneEvent::PipeSpawned { id } = event {
+                    if reset_this_tick {
+                        continue;
+                    }
+                    let pipe = scene
+                        .pipes()
+                        .iter()
+                        .find(|p| p.id == *id)
+                        .expect("just-spawned pipe must exist");
+                    generations
+                        .last_mut()
+                        .unwrap()
+                        .push((pipe.style, pipe.color));
+                }
+                if *event == SceneEvent::SceneReset {
+                    generations.push(Vec::new());
+                }
+            }
+            if generations.len() >= 3 {
+                break;
+            }
+        }
+
+        // Pipe *paths* still vary by RNG (only color/style assignment is
+        // locked), so two generations can legitimately spawn a slightly
+        // different number of pipes before hitting the reset threshold —
+        // compare their common prefix rather than requiring equal length.
+        let common_len = generations[0].len().min(generations[1].len());
+        assert!(
+            common_len >= 2,
+            "need at least a couple of comparable spawns"
+        );
+        assert_eq!(
+            generations[0][..common_len],
+            generations[1][..common_len],
+            "locked colors/styles must reproduce the identical spawn-order pattern every generation"
+        );
     }
 }

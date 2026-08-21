@@ -89,6 +89,19 @@ pub fn draw(
             ui.label(RichText::new("Live preview updates as you adjust these.").weak());
             ui.separator();
 
+            ui.label(RichText::new("Themes").strong());
+            ui.horizontal(|ui| {
+                for theme in Theme::ALL {
+                    if ui.button(theme.label()).clicked() {
+                        theme.apply(config);
+                        outcome.sim_changed = true;
+                        outcome.other_changed = true;
+                    }
+                }
+            });
+            ui.label(RichText::new("Bundles palette + style + speed together; tweak anything below afterward.").weak().small());
+            ui.separator();
+
             ui.collapsing("Pipe style & count", |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Style:");
@@ -109,6 +122,24 @@ pub fn draw(
                     .add(
                         Slider::new(&mut config.visuals.pipe_radius, 0.05..=0.4)
                             .text("Pipe thickness"),
+                    )
+                    .changed();
+            });
+
+            ui.collapsing("Pipe behavior", |ui| {
+                outcome.sim_changed |= ui
+                    .add(
+                        Slider::new(&mut config.sim.straight_weight, 1..=50)
+                            .text("Straightness (vs. turning)"),
+                    )
+                    .changed();
+                outcome.sim_changed |= ui
+                    .add(Slider::new(&mut config.sim.turn_weight, 1..=50).text("Turn eagerness"))
+                    .changed();
+                outcome.sim_changed |= ui
+                    .add(
+                        Slider::new(&mut config.sim.elbow_probability, 0.0..=1.0)
+                            .text("Elbow joint chance (vs. ball joint)"),
                     )
                     .changed();
             });
@@ -134,6 +165,12 @@ pub fn draw(
             });
 
             ui.collapsing("Color palette", |ui| {
+                outcome.sim_changed |= ui
+                    .checkbox(
+                        &mut config.sim.lock_colors_across_resets,
+                        "Keep the same color/style pattern across resets",
+                    )
+                    .changed();
                 ui.horizontal(|ui| {
                     if ui.button("Classic").clicked() {
                         config.sim.palette = pipes_core::default_palette();
@@ -212,6 +249,27 @@ pub fn draw(
                 if ui.button("Reset to defaults").clicked() {
                     outcome.reset_to_defaults = true;
                 }
+                if ui.button("Export…").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_file_name("neo_win_pipes_config.toml")
+                        .add_filter("TOML", &["toml"])
+                        .save_file()
+                    {
+                        if let Err(err) = config.save_to(&path) {
+                            tracing::error!(?err, path = %path.display(), "failed to export config");
+                        } else {
+                            tracing::info!(path = %path.display(), "exported config");
+                        }
+                    }
+                }
+                if ui.button("Import…").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("TOML", &["toml"]).pick_file() {
+                        *config = AppConfig::load_from(&path);
+                        tracing::info!(path = %path.display(), "imported config");
+                        outcome.sim_changed = true;
+                        outcome.other_changed = true;
+                    }
+                }
             });
             if let Some(path) = AppConfig::config_path() {
                 ui.label(
@@ -270,4 +328,79 @@ fn monochrome_palette() -> Vec<Color> {
         Color::new(0.45, 0.45, 0.5),
         Color::new(0.85, 0.85, 0.9),
     ]
+}
+
+/// One-click bundles of palette + style + speed, requested as a
+/// lower-confidence "ours" idea in `docs/FEATURE_IDEAS.md` — cheap to
+/// build on top of the palette presets and per-field sliders that already
+/// existed. Each theme sets several `AppConfig` fields at once; anything
+/// it sets can still be tweaked individually afterward.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Theme {
+    Classic96,
+    Neon,
+    Monochrome,
+}
+
+impl Theme {
+    const ALL: [Theme; 3] = [Theme::Classic96, Theme::Neon, Theme::Monochrome];
+
+    fn label(self) -> &'static str {
+        match self {
+            Theme::Classic96 => "Classic '96",
+            Theme::Neon => "Neon",
+            Theme::Monochrome => "Monochrome",
+        }
+    }
+
+    fn apply(self, config: &mut AppConfig) {
+        match self {
+            Theme::Classic96 => {
+                config.sim.palette = pipes_core::default_palette();
+                config.sim.style_mode = PipeStyleMode::Mixed;
+                config.tick_interval_ms = 120;
+                config.camera.orbit_enabled = true;
+                config.camera.orbit_speed = 0.15;
+            }
+            Theme::Neon => {
+                config.sim.palette = neon_palette();
+                config.sim.style_mode = PipeStyleMode::Mixed;
+                config.tick_interval_ms = 60;
+                config.camera.orbit_enabled = true;
+                config.camera.orbit_speed = 0.35;
+            }
+            Theme::Monochrome => {
+                config.sim.palette = monochrome_palette();
+                config.sim.style_mode = PipeStyleMode::Round;
+                config.tick_interval_ms = 200;
+                config.camera.orbit_enabled = true;
+                config.camera.orbit_speed = 0.08;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+
+    #[test]
+    fn every_theme_produces_a_sanitize_stable_config() {
+        // Each theme's values must already be within AppConfig::sanitize's
+        // clamped ranges — a theme that got clamped on apply would be
+        // silently different from what the button claimed to set.
+        for theme in Theme::ALL {
+            let mut config = AppConfig::default();
+            theme.apply(&mut config);
+            let before = config.clone();
+            config.sanitize();
+            assert_eq!(
+                config,
+                before,
+                "{:?} should need no clamping",
+                theme.label()
+            );
+            assert!(!config.sim.palette.is_empty());
+        }
+    }
 }

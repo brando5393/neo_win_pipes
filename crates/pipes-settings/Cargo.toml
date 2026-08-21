@@ -24,3 +24,4 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 serde = { workspace = true }
 serde_json = "1"
 semver = "1"
+rfd = { version = "0.14", default-features = false, features = ["xdg-portal"] }

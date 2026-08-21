@@ -16,10 +16,10 @@ for, not just what seemed neat.
 
 - **Number of concurrent pipes**, adjustable — requested directly ([1j01/pipes #6](https://github.com/1j01/pipes/issues/6): "how do i add more pipes going at the same time"); `pipes.sh` exposes this as `-p`.
 - **Speed control** — requested directly ([1j01/pipes #4](https://github.com/1j01/pipes/issues/4): "Pipe speed is too rapid"); `pipes.sh` exposes frame rate (`-f`) and has live keyboard shortcuts to adjust it without restarting.
-- **"Probability of straight vs. turn"** as a first-class tunable, not just a fixed internal constant — `pipes.sh -s` exposes exactly this (our `straight_weight`/`turn_weight` ratio). Worth exposing as one slider in a future settings pass, not just baked into `SimConfig` defaults.
-- **Color set selection**, including the ability to pick specific colors, not just "random" — `pipes.sh -c` takes a list of color indices.
-- **Pipe style selection** (`pipes.sh -t` has 10 built-in styles plus fully custom glyph sets) — our analog is `PipeStyle`/joint style; validates giving the user real style choice rather than a fixed 50/50 mix.
-- **Reset behavior control** — `pipes.sh -r` sets how full the screen gets before clearing, and `-K` locks color/style across a reset instead of randomizing. Our `reset_occupancy_ratio` should be user-facing, and a "keep same palette across resets" toggle is a cheap, validated addition.
+- **"Probability of straight vs. turn"** as a first-class tunable, not just a fixed internal constant — `pipes.sh -s` exposes exactly this (our `straight_weight`/`turn_weight` ratio). **Shipped**: "Pipe behavior" section exposes `straight_weight`/`turn_weight`/`elbow_probability` sliders.
+- **Color set selection**, including the ability to pick specific colors, not just "random" — `pipes.sh -c` takes a list of color indices. Shipped as palette presets + custom per-color editing.
+- **Pipe style selection** (`pipes.sh -t` has 10 built-in styles plus fully custom glyph sets) — our analog is `PipeStyle`/joint style; validates giving the user real style choice rather than a fixed 50/50 mix. Shipped as the Round/Square/Mixed radio.
+- **Reset behavior control** — `pipes.sh -r` sets how full the screen gets before clearing (shipped as `reset_occupancy_ratio`), and `-K` locks color/style across a reset instead of randomizing. **Shipped**: `lock_colors_across_resets` toggle — when on, color/style assignment cycles deterministically by spawn order instead of randomizing, so every generation reproduces the identical pattern (see `Scene::spawn_index_this_generation`).
 - **Live/runtime adjustment**, not just a config screen you set once and restart — `pipes.sh` supports adjusting several of the above via keyboard shortcuts *while it's running*. Worth keeping in mind for the settings app's live-preview design: changes should apply immediately, not require a restart.
 
 ## Stability/performance cautions (learn from others' bug reports)
@@ -33,9 +33,11 @@ for, not just what seemed neat.
 
 ## Ideas not yet validated by outside sources (ours, lower confidence)
 
-- Preset "themes" bundling palette + style + speed together (e.g. "Classic '96", "Neon", "Monochrome").
-- A pause/resume hotkey in the live preview (distinct from the runtime keyboard shortcuts `pipes.sh` has for adjusting parameters).
-- Config export/import (share a `.toml` with someone else) — cheap once the config file format exists at all.
+- ~~Preset "themes" bundling palette + style + speed together~~ — **shipped**: "Classic '96"/"Neon"/"Monochrome" one-click bundles in the Themes row.
+- A pause/resume hotkey in the live preview (distinct from the runtime keyboard shortcuts `pipes.sh` has for adjusting parameters). Still open — not picked when the rest of this batch was chosen.
+- ~~Config export/import~~ — **shipped**: "Export…"/"Import…" buttons using a native file dialog (`rfd`).
+- The classic screensaver's teapot easter egg (a Utah teapot occasionally rendering at a joint instead of the normal ball/elbow) — in progress.
+- Multi-monitor configurable behavior (promoted up from "Modern-platform expectations" below) — in progress.
 
 ## Where this feeds in
 
