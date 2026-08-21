@@ -12,8 +12,13 @@ feature branch.
 - [x] `pipes-app`: originally a headless CLI runner with human-readable
       `tracing` logs — superseded by the Phase 2 windowed renderer below.
 - [x] Repo scaffold: `CLAUDE.md`, docs set, MIT license, `.gitignore`.
-- [ ] CI (GitHub Actions): build + test on `windows-latest`,
-      `macos-latest`, `ubuntu-latest` for every push/PR.
+- [x] CI (GitHub Actions): build + test + fmt + clippy on `windows-latest`,
+      `macos-latest`, `ubuntu-latest` for every push/PR. First real run
+      passed on all three (`windows-latest` 4m30s, `macos-latest` 1m29s,
+      `ubuntu-latest` 2m6s) — including confirming the Linux dev-library
+      install step (`libx11-dev`/`libxkbcommon-dev`/etc., added blind since
+      there's no local Linux machine) was actually sufficient for
+      `winit`/`wgpu` to compile there.
 
 ## Phase 2 — Rendering
 
@@ -98,20 +103,33 @@ for the full writeup per platform.
 ### Linux — argument parsing done and tested; rendering not wired up
 
 - [x] `pipes-xscreensaver` crate: parses `-root` / `-window-id <id>`
-      (decimal or hex), unit-tested, builds cross-platform (pure Rust, no
-      X11 deps yet).
+      (decimal or hex), unit-tested.
+- [x] As of the first real CI run, this is no longer just "should build
+      cross-platform" — GitHub Actions' `ubuntu-latest` runner actually
+      compiled and passed tests for the *whole* workspace (including
+      `winit`/`wgpu`-based `pipes-render`/`pipes-app`/`pipes-settings`,
+      not just this crate) in 2m6s, confirming the blind guess at which
+      apt packages `winit`/`wgpu` need (`libx11-dev`, `libxkbcommon-dev`,
+      etc.) was sufficient. That's a real, verified data point now, not
+      an assumption — though it's compilation + unit tests, not a live
+      screensaver running on a real X server.
 - [ ] Not done: X11 connection, resolving/embedding into the target
       window via a raw Xlib/XCB handle, wiring into `pipes-render`. Needs
-      `x11rb`/`x11-dl` and can't be compiled or verified without a Linux
-      machine — deliberately left unwritten rather than shipped as
-      unverified guesswork.
+      `x11rb`/`x11-dl`, and CI can compile it but can't smoke-test actual
+      window embedding without a display server — deliberately left
+      unwritten rather than shipped as unverified guesswork.
 - [ ] The exact xscreensaver hack CLI contract itself
       (`docs/FEATURE_IDEAS.md`'s research) needs to be checked against a
       live xscreensaver install/its `screenhack.c` source — treat it as a
       documented best guess until then.
 
-### macOS — design only, no code yet
+### macOS — design only, no `.saver` code yet
 
+- [x] Confirmed by the first real CI run: the existing workspace (`pipes-core`,
+      `pipes-render`, `pipes-app`, `pipes-settings`, `pipes-xscreensaver` —
+      everything that exists so far) builds and passes its tests on
+      `macos-latest` in 1m29s. Useful, but not the same thing as a `.saver`
+      — no `ScreenSaverView`/bundle code exists yet.
 - [ ] Not started. A `.saver` is an `NSBundle` implementing
       `ScreenSaverView` (`objc2` + `objc2-screen-saver`), built as a
       `cdylib` with `-bundle` and an `Info.plist` — normally an Xcode-
@@ -121,9 +139,13 @@ for the full writeup per platform.
 
 ### Cross-platform
 
+- [x] CI now builds and tests the whole workspace on all three OSes on
+      every push — see the Phase 1 checkbox above for the first run's
+      results.
 - [ ] Each wrapper gets its own smoke test appropriate to its platform —
-      done for Windows (see above); blocked on hardware/CI for the other
-      two.
+      done for Windows (see above); no longer blocked on CI access for
+      macOS/Linux (that's fixed), but still blocked on the actual `.saver`
+      and X11-embedding code not existing yet to test.
 - [ ] Multi-monitor behavior (span vs. per-display) — not addressed on
       any platform yet; see "explicitly out of scope for now" below.
 

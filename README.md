@@ -1,5 +1,7 @@
 # neo_win_pipes
 
+[![CI](https://github.com/brando5393/neo_win_pipes/actions/workflows/ci.yml/badge.svg)](https://github.com/brando5393/neo_win_pipes/actions/workflows/ci.yml)
+
 A modern, cross-platform (Windows / macOS / Linux) recreation of the
 classic Windows "3D Pipes" screensaver — the chrome pipes one, from Windows
 NT 4.0 onward. Goal: an installable, OS-selectable screensaver on all three
