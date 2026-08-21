@@ -1,0 +1,15 @@
+[package]
+name = "pipes-app"
+description = "Headless simulation runner for pipes-core, with human-readable structured logging. This is the Phase 1 binary; Phase 2 adds a windowed wgpu renderer on top of the same pipes-core engine (see docs/ROADMAP.md)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pipes-app"
+path = "src/main.rs"
+
+[dependencies]
+pipes-core = { path = "../pipes-core" }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

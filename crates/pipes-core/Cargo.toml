@@ -1,0 +1,11 @@
+[package]
+name = "pipes-core"
+description = "Platform-agnostic simulation engine for the neo_win_pipes screensaver: grid, pipe growth, joints, scene lifecycle. No rendering or windowing dependencies, by design, so it stays fully unit-testable."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rand = { workspace = true }
+rand_pcg = { workspace = true }
+tracing = { workspace = true }
