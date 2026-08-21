@@ -1,12 +1,12 @@
 [package]
-name = "pipes-app"
-description = "The actual screensaver: a fullscreen-friendly window that loads AppConfig and renders the pipes simulation via pipes-render."
+name = "pipes-settings"
+description = "Standalone settings app: a live pipes preview alongside a settings drawer, reading/writing the same AppConfig the screensaver uses."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "pipes-app"
+name = "pipes-settings"
 path = "src/main.rs"
 
 [dependencies]
@@ -17,3 +17,6 @@ tracing-subscriber = { workspace = true }
 wgpu = "0.19"
 winit = "0.29"
 pollster = "0.3"
+egui = "0.27"
+egui-wgpu = "0.27"
+egui-winit = "0.27"

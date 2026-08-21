@@ -9,19 +9,21 @@ feature branch.
 - [x] `pipes-core`: grid, direction, pipe growth/turning/termination,
       scene lifecycle, seeded determinism.
 - [x] Unit test suite for all of the above (22 tests as of this writing).
-- [x] `pipes-app`: headless CLI runner with human-readable `tracing` logs.
+- [x] `pipes-app`: originally a headless CLI runner with human-readable
+      `tracing` logs — superseded by the Phase 2 windowed renderer below.
 - [x] Repo scaffold: `CLAUDE.md`, docs set, MIT license, `.gitignore`.
 - [ ] CI (GitHub Actions): build + test on `windows-latest`,
       `macos-latest`, `ubuntu-latest` for every push/PR.
 
 ## Phase 2 — Rendering
 
-- [x] `pipes-app` grows a `winit` window + `wgpu` renderer.
-- [x] Geometry generation: `pipes-app::geometry` turns segments/joints into
-      cylinder / cuboid / sphere meshes (pure functions, unit-tested on
-      vertex/index counts, normal validity, and radius bounds — no GPU
+- [x] `pipes-app` grows a `winit` window + `wgpu` renderer (later factored
+      out into the shared `pipes-render` crate — see Phase 2.5).
+- [x] Geometry generation: `pipes-render::geometry` turns segments/joints
+      into cylinder / cuboid / sphere meshes (pure functions, unit-tested
+      on vertex/index counts, normal validity, and radius bounds — no GPU
       needed to verify shape correctness).
-- [x] Instancing: `pipes-app::instance` converts a live `Scene` into
+- [x] Instancing: `pipes-render::instance` converts a live `Scene` into
       per-mesh GPU instance buffers (round segments, square segments,
       joints/caps), unit-tested for degenerate-direction NaN safety.
 - [x] Slowly drifting orbit camera around the scene.
@@ -36,6 +38,34 @@ feature branch.
       to "elbow." Torus geometry is a nice-to-have polish item.
 - [x] Checked-in reference screenshot in `docs/screenshots/` (one so far;
       add more as the renderer evolves for visual regression comparison).
+
+## Phase 2.5 — Settings app (shipped)
+
+- [x] Extracted `geometry`/`instance`/`renderer` out of `pipes-app` into a
+      shared `pipes-render` library crate, with `AppConfig` (persisted as
+      TOML in the OS's standard per-user config dir) added alongside them.
+- [x] `AppConfig::sanitize()` clamps every field to a safe range on load
+      (unit-tested: missing file, corrupt file, save/load round-trip,
+      out-of-range clamping) so a hand-edited config can't break the app.
+- [x] `pipes-settings`: a standalone window — live 3D preview on the left
+      (rendered into a sub-viewport via `Renderer::render_with`), an egui
+      settings drawer on the right. Covers all four validated categories
+      from `docs/FEATURE_IDEAS.md`: pipe style & count, speed & camera,
+      color palette (presets + custom per-color editing), grid size &
+      reset threshold. Autosaves on every change; "Reset to defaults"
+      button. `pipes-app` (the actual screensaver) reads the same file.
+- [x] Manual visual verification: launched, screenshotted, confirmed the
+      live preview actually updates and isn't hidden behind egui's default
+      opaque panel background (a real bug hit and fixed during
+      development — `CentralPanel` needs `Frame::none()` when something
+      else is drawing underneath it in the same frame).
+- [ ] Wire this UI up as the real Windows `.scr` `/c <HWND>` config dialog
+      once Phase 3's Windows wrapper exists (currently standalone-only, by
+      deliberate choice — see the project's design questions).
+- [ ] Not yet exposed in the drawer: `straight_weight`/`turn_weight` ratio
+      and `elbow_probability`, even though both are configurable in
+      `SimConfig` and validated as wanted (`pipes.sh -s`) per
+      `docs/FEATURE_IDEAS.md`. Small follow-up.
 
 ## Phase 3 — Native screensaver wrappers
 
@@ -61,8 +91,9 @@ feature branch.
 
 - Non-Rust language bindings.
 - Mobile/tablet screensaver equivalents.
-- Config UI beyond what each OS's native screensaver settings contract
-  requires (no separate GUI settings app).
+- Multi-monitor-specific configuration (span vs. per-display) — flagged as
+  a real modern-platform expectation in `docs/FEATURE_IDEAS.md`, deferred
+  to Phase 3 since it's tied up with each OS's screensaver contract.
 
 Revisit this list if a phase reveals it was wrong — this is a plan, not a
 contract.

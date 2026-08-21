@@ -1,10 +1,10 @@
 # Usage
 
-> **Status**: Phase 2 (windowed rendering) is live — there's a real window
-> with real pipes now. There is still no installer and nothing to "select
-> as your screensaver" yet — see [ROADMAP.md](ROADMAP.md) for Phase 3/4.
+> **Status**: Phase 2.5 (windowed rendering + a settings app) is live.
+> There is still no installer and nothing to "select as your screensaver"
+> yet — see [ROADMAP.md](ROADMAP.md) for Phase 3/4.
 
-## Running it
+## Running the screensaver
 
 ```sh
 cargo run -p pipes-app -- --seed 1
@@ -25,6 +25,25 @@ console output alongside the window.
 | Variable   | Meaning |
 |------------|---------|
 | `RUST_LOG` | Log verbosity/filter, e.g. `RUST_LOG=debug`. See [LOGGING.md](LOGGING.md). |
+
+## Running the settings app
+
+```sh
+cargo run -p pipes-settings
+```
+
+Opens "Pipes Settings": a live 3D preview on the left, a settings drawer
+on the right (pipe style & count, speed & camera, color palette, grid size
+& reset threshold). Every change applies to the live preview immediately
+and autosaves to the shared config file shown at the bottom of the drawer
+— the next time you run `pipes-app`, it picks up the same settings. Click
+**Reset to defaults** to discard all customization.
+
+The config file lives at the OS's standard per-user config location (e.g.
+`%APPDATA%\neo_win_pipes\config.toml` on Windows) — see
+[ARCHITECTURE.md](ARCHITECTURE.md#pipes-render) for the full `AppConfig`
+shape if you want to hand-edit it (it's validated/clamped on load either
+way, so a bad edit can't break the app).
 
 ### On Windows-on-ARM64
 

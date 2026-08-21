@@ -19,7 +19,19 @@ pub enum PipeStyle {
     Square,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Which `PipeStyle`(s) a `Scene` spawns. `Mixed` is the original
+/// screensaver's default behavior (each new pipe independently randomized);
+/// `Round`/`Square` pin every pipe to one style, validated as a real user
+/// want by `pipes.sh`'s `-t` style selection — see `docs/FEATURE_IDEAS.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum PipeStyleMode {
+    Round,
+    Square,
+    #[default]
+    Mixed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Color {
     pub r: f32,
     pub g: f32,

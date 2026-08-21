@@ -16,6 +16,7 @@ pub struct InstanceRaw {
 
 /// Tunables for how thick pipes/joints render, in grid units (one grid unit
 /// == one cell == the distance between consecutive path points).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PipeVisuals {
     pub pipe_radius: f32,
     pub ball_joint_scale: f32,

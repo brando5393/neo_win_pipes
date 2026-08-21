@@ -1,24 +1,20 @@
-//! Windowed entry point: ticks the pipes-core simulation on a fixed
-//! interval and renders it with wgpu. Run with `cargo run -p pipes-app --
-//! --seed 1`; press Escape or close the window to quit.
-
-mod geometry;
-mod instance;
-mod renderer;
+//! The screensaver itself. Loads `AppConfig` (shared with `pipes-settings`
+//! — see docs/ARCHITECTURE.md), ticks the pipes-core simulation on a fixed
+//! interval, and renders it fullscreen-window via pipes-render. Run with
+//! `cargo run -p pipes-app -- --seed 1`; press Escape or close the window
+//! to quit.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use pipes_core::{Scene, SceneEvent, SimConfig};
+use pipes_core::{Scene, SceneEvent};
+use pipes_render::{build_instances, AppConfig, Renderer};
 use tracing::info;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::WindowBuilder;
-
-use instance::{build_instances, PipeVisuals};
-use renderer::Renderer;
 
 struct Args {
     seed: u64,
@@ -50,11 +46,13 @@ fn init_logging() {
         .init();
 }
 
-const TICK_INTERVAL: Duration = Duration::from_millis(120);
-
 fn main() {
     init_logging();
     let args = parse_args();
+
+    let mut app_config = AppConfig::load();
+    app_config.sanitize();
+    info!(config_path = ?AppConfig::config_path(), "loaded AppConfig (or defaults if missing)");
 
     let event_loop = EventLoop::new().expect("failed to create event loop");
     let window = Arc::new(
@@ -65,20 +63,19 @@ fn main() {
             .expect("failed to create window"),
     );
 
-    let config = SimConfig::default();
     let bounds = (
-        config.bounds.width,
-        config.bounds.height,
-        config.bounds.depth,
+        app_config.sim.bounds.width,
+        app_config.sim.bounds.height,
+        app_config.sim.bounds.depth,
     );
-    let mut scene = Scene::new(config, args.seed);
-    let visuals = PipeVisuals::default();
+    let mut scene = Scene::new(app_config.sim.clone(), args.seed);
 
     let mut renderer = pollster::block_on(Renderer::new(window.clone(), bounds));
 
     info!(seed = args.seed, "neo_win_pipes window opened");
     let start = Instant::now();
     let mut last_tick = Instant::now();
+    let tick_interval = Duration::from_millis(app_config.tick_interval_ms as u64);
 
     event_loop
         .run(move |event, elwt| match event {
@@ -95,7 +92,7 @@ fn main() {
                 } => elwt.exit(),
                 WindowEvent::Resized(size) => renderer.resize(size.width, size.height),
                 WindowEvent::RedrawRequested => {
-                    if last_tick.elapsed() >= TICK_INTERVAL {
+                    if last_tick.elapsed() >= tick_interval {
                         last_tick = Instant::now();
                         for event in scene.step() {
                             if event == SceneEvent::SceneReset {
@@ -104,14 +101,11 @@ fn main() {
                         }
                     }
 
-                    let sets = build_instances(&scene, &visuals);
+                    let sets = build_instances(&scene, &app_config.visuals);
                     let orbit_seconds = start.elapsed().as_secs_f32();
-                    if let Err(err) = renderer.render(
-                        orbit_seconds,
-                        &sets.round_segments,
-                        &sets.square_segments,
-                        &sets.joints,
-                    ) {
+                    if let Err(err) =
+                        renderer.render(orbit_seconds, &app_config.camera, None, &sets)
+                    {
                         match err {
                             wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
                                 let size = window.inner_size();

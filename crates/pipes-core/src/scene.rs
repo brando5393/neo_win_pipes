@@ -4,11 +4,13 @@ use tracing::{debug, info};
 
 use crate::direction::Direction;
 use crate::grid::{GridBounds, GridPos, OccupancyGrid};
-use crate::pipe::{Color, Pipe, PipeStyle, StepOutcome};
+use crate::pipe::{Color, Pipe, PipeStyle, PipeStyleMode, StepOutcome};
 
 /// Tunable knobs for one simulation. Defaults aim for a "faithful classic"
-/// look; renderer front-ends may expose these as user-facing settings.
-#[derive(Debug, Clone, Copy)]
+/// look; renderer front-ends may expose these as user-facing settings — see
+/// `docs/FEATURE_IDEAS.md` for which of these were validated by looking at
+/// what users of prior pipes-screensaver projects actually asked for.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SimConfig {
     pub bounds: GridBounds,
     pub max_pipes: usize,
@@ -25,6 +27,12 @@ pub struct SimConfig {
     /// How many random free cells to try before giving up on spawning a
     /// pipe this tick (the grid may be nearly full).
     pub spawn_attempts: u32,
+    /// Which pipe style(s) get spawned.
+    pub style_mode: PipeStyleMode,
+    /// Colors newly-spawned pipes are randomly drawn from. Must be
+    /// non-empty; `Scene::new` falls back to `default_palette()` if given
+    /// an empty list (e.g. from a hand-edited config file).
+    pub palette: Vec<Color>,
 }
 
 impl Default for SimConfig {
@@ -38,8 +46,49 @@ impl Default for SimConfig {
             reset_occupancy_ratio: 0.35,
             max_pipe_length: 400,
             spawn_attempts: 64,
+            style_mode: PipeStyleMode::default(),
+            palette: default_palette(),
         }
     }
+}
+
+/// The bright, saturated palette in the spirit of the original's
+/// chrome-and-neon pipe colors, rather than a photorealistic random hue.
+/// Public so front-ends (e.g. a settings app) can offer "reset to classic
+/// palette" without duplicating the color list.
+pub fn default_palette() -> Vec<Color> {
+    vec![
+        Color {
+            r: 0.85,
+            g: 0.15,
+            b: 0.15,
+        }, // red
+        Color {
+            r: 0.15,
+            g: 0.55,
+            b: 0.85,
+        }, // blue
+        Color {
+            r: 0.15,
+            g: 0.75,
+            b: 0.35,
+        }, // green
+        Color {
+            r: 0.95,
+            g: 0.75,
+            b: 0.10,
+        }, // gold
+        Color {
+            r: 0.70,
+            g: 0.20,
+            b: 0.85,
+        }, // purple
+        Color {
+            r: 0.85,
+            g: 0.85,
+            b: 0.90,
+        }, // chrome/silver
+    ]
 }
 
 /// A notable event a caller (renderer, logger, tests) might care about.
@@ -151,12 +200,24 @@ impl Scene {
                 continue;
             }
             let dir = Direction::ALL[self.rng.gen_range(0..Direction::ALL.len())];
-            let style = if self.rng.gen_bool(0.5) {
-                PipeStyle::Round
-            } else {
-                PipeStyle::Square
+            let style = match self.config.style_mode {
+                PipeStyleMode::Round => PipeStyle::Round,
+                PipeStyleMode::Square => PipeStyle::Square,
+                PipeStyleMode::Mixed => {
+                    if self.rng.gen_bool(0.5) {
+                        PipeStyle::Round
+                    } else {
+                        PipeStyle::Square
+                    }
+                }
             };
-            let color = random_pipe_color(&mut self.rng);
+            let color = if self.config.palette.is_empty() {
+                let fallback = default_palette();
+                fallback[self.rng.gen_range(0..fallback.len())]
+            } else {
+                let palette = &self.config.palette;
+                palette[self.rng.gen_range(0..palette.len())]
+            };
             let id = self.next_id;
             self.next_id += 1;
             self.grid.occupy(p);
@@ -173,44 +234,6 @@ impl Scene {
     }
 }
 
-/// Bright, saturated palette in the spirit of the original's chrome-and-neon
-/// pipe colors, rather than a photorealistic random hue.
-fn random_pipe_color(rng: &mut impl Rng) -> Color {
-    const PALETTE: [Color; 6] = [
-        Color {
-            r: 0.85,
-            g: 0.15,
-            b: 0.15,
-        }, // red
-        Color {
-            r: 0.15,
-            g: 0.55,
-            b: 0.85,
-        }, // blue
-        Color {
-            r: 0.15,
-            g: 0.75,
-            b: 0.35,
-        }, // green
-        Color {
-            r: 0.95,
-            g: 0.75,
-            b: 0.10,
-        }, // gold
-        Color {
-            r: 0.70,
-            g: 0.20,
-            b: 0.85,
-        }, // purple
-        Color {
-            r: 0.85,
-            g: 0.85,
-            b: 0.90,
-        }, // chrome/silver
-    ];
-    PALETTE[rng.gen_range(0..PALETTE.len())]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,6 +248,7 @@ mod tests {
             reset_occupancy_ratio: 0.5,
             max_pipe_length: 20,
             spawn_attempts: 64,
+            ..SimConfig::default()
         }
     }
 

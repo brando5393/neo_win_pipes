@@ -24,7 +24,7 @@ impl GridPos {
 
 /// The fixed-size box the simulation is contained in. Pipes never leave it;
 /// hitting a wall counts the same as hitting another pipe.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GridBounds {
     pub width: i32,
     pub height: i32,

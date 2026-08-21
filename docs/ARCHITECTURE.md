@@ -13,14 +13,25 @@ on the core, never the other way around.
 
 ```
 crates/
-  pipes-core/    engine: grid, pipe growth, joints, scene lifecycle.
-                 No rendering/windowing deps. Fully unit-tested.
-  pipes-app/     Phase 1: headless CLI runner + human-readable logging.
-                 Phase 2: adds the wgpu-based windowed renderer.
+  pipes-core/     engine: grid, pipe growth, joints, scene lifecycle.
+                  No rendering/windowing deps. Fully unit-tested.
+  pipes-render/   shared layer: geometry generation, GPU instancing, the
+                  wgpu Renderer, and AppConfig (the persisted settings file
+                  both binaries below read/write). No app/window of its own.
+  pipes-app/      the actual screensaver: a fullscreen-friendly window
+                  that loads AppConfig and renders via pipes-render.
+  pipes-settings/ "Pipes Settings": a window with a live preview (via
+                  pipes-render, rendered into part of the window) next to
+                  an egui settings drawer, editing the same AppConfig file.
   (future) pipes-win-scr/    Windows .scr wrapper around pipes-app's engine
   (future) pipes-mac-saver/  macOS .saver (ScreenSaverView) wrapper
   (future) pipes-xscreensaver/ Linux xscreensaver module wrapper
 ```
+
+`pipes-render` exists specifically so `pipes-app` and `pipes-settings`
+never duplicate rendering or config-loading code — both are thin
+`winit`/event-loop shells around the same `Renderer`, `build_instances`,
+and `AppConfig`.
 
 See [ROADMAP.md](ROADMAP.md) for why the native wrappers are a later phase
 rather than day one.
@@ -55,9 +66,10 @@ tests in `pipe.rs` and `scene.rs`: given a seed, the entire simulation
 reproducible. That determinism is also why a bug report can eventually
 just say "seed 12345, tick 800" instead of a screen recording.
 
-## `pipes-app`
+## `pipes-render`
 
-A `winit` + `wgpu` windowed renderer, structured in three parts:
+A `winit` + `wgpu` rendering/config layer with no `main()` of its own,
+structured in four parts:
 
 - **`geometry`** — pure procedural mesh generation (unit cylinder, cuboid,
   UV sphere), no GPU handle involved, so shape correctness (vertex/index
@@ -73,16 +85,62 @@ A `winit` + `wgpu` windowed renderer, structured in three parts:
   Lambertian + Blinn-Phong shader (`shader.wgsl`) for a "shiny metal" look,
   depth testing, and a camera that slowly orbits the scene per
   `docs/RESEARCH.md`'s note on the original's optional rotation.
+  `Renderer::render` draws into the whole surface (the screensaver's use
+  case); `Renderer::render_with` additionally takes a viewport rect and an
+  `extra` closure called with the same device/queue/encoder/surface view,
+  which is how `pipes-settings` layers an egui pass into the same frame
+  without `pipes-render` knowing anything about egui.
+- **`config`** — `AppConfig`: everything a settings session can tune
+  (`SimConfig`, `PipeVisuals`, `CameraConfig`, tick speed), serialized as
+  TOML to the OS's standard per-user config directory (via the
+  `directories` crate) so both binaries below read/write the exact same
+  file. `AppConfig::sanitize()` clamps every field to a safe range on
+  load, so a hand-edited or stale config file can't produce degenerate
+  geometry or a divide-by-zero — unit-tested directly (missing file,
+  corrupt file, save/load round-trip, out-of-range clamping).
 
-`main.rs` ticks the `Scene` on a fixed interval (independent of frame
-rate), rebuilds instance buffers from the current scene state every frame,
-and renders. `wgpu` was chosen over raw OpenGL/Direct3D because one API
-target compiles to Vulkan (Linux), Metal (macOS), and DirectX12/Vulkan
-(Windows) — what makes one Rust codebase realistic across all three OSes.
+`wgpu` was chosen over raw OpenGL/Direct3D because one API target compiles
+to Vulkan (Linux), Metal (macOS), and DirectX12/Vulkan (Windows) — what
+makes one Rust codebase realistic across all three OSes.
 
 Known simplifications, tracked in [ROADMAP.md](ROADMAP.md): the material
 is specular-only, not a true chrome environment reflection; elbow joints
 render as a small sphere rather than a smooth torus bend.
+
+## `pipes-app`
+
+The screensaver itself: loads `AppConfig`, ticks the `Scene` on a fixed
+interval (`AppConfig::tick_interval_ms`, independent of frame rate),
+rebuilds instance buffers every frame, and calls `Renderer::render` with
+`viewport: None` (the whole window).
+
+## `pipes-settings`
+
+"Pipes Settings" — a live preview next to a settings drawer, in one
+window. Two libraries are combined manually (not via `eframe`, which owns
+its own render loop and doesn't leave room for a custom wgpu pass):
+`egui` + `egui-winit` (input/platform integration) and `egui-wgpu` (paints
+egui's tessellated output into a `wgpu::RenderPass`) sit alongside
+`pipes-render`'s `Renderer`, sharing the same `wgpu::Device`/`Queue`.
+
+Per frame (`main.rs`): run the egui UI closure first (`ui.rs`) to compute
+the settings drawer *and* learn how much space is left for the preview
+(`CentralPanel`'s `available_rect_before_wrap()` — critically with
+`Frame::none()`, since `CentralPanel`'s default frame paints an opaque
+background that would otherwise hide the 3D content drawn under it in the
+same frame); convert that rect from egui's logical points to physical
+pixels; then call `Renderer::render_with` with that rect as the viewport
+(so the 3D pass is scissored to just the preview pane) and an `extra`
+closure that runs the egui render pass on top, using `wgpu`'s `Load` op so
+it composites over the pipes instead of clearing them.
+
+`ui::draw` reports back an `Outcome`: whether a change affects the
+simulation itself (`sim_changed` — e.g. style, pipe count, palette, grid
+size; requires rebuilding the live-preview `Scene`, since `SimConfig` is
+baked in at `Scene::new`) versus only rendering (`other_changed` — pipe
+thickness, camera, speed; takes effect next frame with no rebuild), plus
+`reset_to_defaults` for the drawer's reset button. `main.rs` acts on
+`Outcome` and autosaves `AppConfig` on any change.
 
 ## Native screensaver wrappers (Phase 3, not yet started)
 

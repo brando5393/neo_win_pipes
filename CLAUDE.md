@@ -11,17 +11,20 @@ fullscreen demo app. Full context: `docs/RESEARCH.md` (what the original
 did and why), `docs/ARCHITECTURE.md` (how this codebase is structured),
 `docs/ROADMAP.md` (what phase we're in).
 
-**Current phase**: Phase 2 — windowed `wgpu` rendering is live
-(`pipes-app::geometry`/`instance`/`renderer`). No native screensaver
-packaging or installers yet. Check `docs/ROADMAP.md` before assuming
-Phase 3/4 (native `.scr`/`.saver`/xscreensaver wrappers, installers) exist.
+**Current phase**: Phase 2.5 — windowed `wgpu` rendering (`pipes-render`,
+shared by `pipes-app` and `pipes-settings`) plus a settings app
+(`pipes-settings`) with a live preview and an egui drawer, backed by a
+persisted `AppConfig`. No native screensaver packaging or installers yet.
+Check `docs/ROADMAP.md` before assuming Phase 3/4 (native
+`.scr`/`.saver`/xscreensaver wrappers, installers) exist.
 
 ## Commands
 
 ```sh
 cargo build --workspace
-cargo test --workspace          # must pass before any change is done — 31 tests as of Phase 2
-cargo run -p pipes-app -- --seed 1        # opens a window
+cargo test --workspace              # must pass before any change is done — 36 tests as of Phase 2.5
+cargo run -p pipes-app -- --seed 1  # the screensaver
+cargo run -p pipes-settings         # live preview + settings drawer
 RUST_LOG=debug cargo run -p pipes-app -- --seed 1
 ```
 
@@ -37,10 +40,12 @@ change, not just the initial scaffold:
 1. **Every change to simulation logic (`pipes-core`) ships with tests in
    the same commit.** Not a follow-up, not "add tests later." This is the
    project's founding requirement — see `docs/DEVELOPMENT.md#testing-philosophy`.
-2. **`pipes-core` stays free of rendering/windowing dependencies.** If
-   something can only be verified by looking at a window, it belongs in
-   `pipes-app`'s rendering layer, not the core. This is what keeps the
-   whole simulation testable headlessly in CI on all three OSes.
+2. **`pipes-core` stays free of rendering/windowing dependencies**, and
+   `pipes-render` stays free of `pipes-app`/`pipes-settings`-specific
+   window/event-loop code. If something can only be verified by looking at
+   a window, it belongs in one of the two binary crates, not `pipes-core`
+   or `pipes-render`. This is what keeps the simulation testable headlessly
+   in CI and keeps the two apps from duplicating rendering/config code.
 3. **Determinism is load-bearing, not incidental.** `Scene`/`Pipe` take an
    explicit seeded RNG; never reach for thread-local/OS randomness inside
    `pipes-core`. If you touch RNG call order, expect the
@@ -60,6 +65,7 @@ change, not just the initial scaffold:
 | Question | Doc |
 |---|---|
 | What does the original screensaver actually do? | `docs/RESEARCH.md` |
+| What features have users of similar projects actually asked for? | `docs/FEATURE_IDEAS.md` |
 | How is this codebase organized, and why? | `docs/ARCHITECTURE.md` |
 | What's built vs. planned? | `docs/ROADMAP.md` |
 | How do I build/test/contribute? | `docs/DEVELOPMENT.md` |

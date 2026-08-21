@@ -237,10 +237,22 @@ impl Renderer {
         self.depth_view = create_depth_view(&self.device, &self.config);
     }
 
-    /// `orbit_seconds` drives a slow camera drift around the scene, echoing
-    /// the original screensaver's optional rotation.
-    fn update_camera(&self, orbit_seconds: f32) {
-        let angle = orbit_seconds * 0.15;
+    /// `orbit_seconds` drives a slow camera drift around the scene (when
+    /// `camera.orbit_enabled`), echoing the original screensaver's optional
+    /// rotation — see `docs/RESEARCH.md`. `viewport_wh` is the pixel size
+    /// of the region being rendered into (the full window, or a preview
+    /// pane's sub-rect), used for a correct (non-stretched) aspect ratio.
+    fn update_camera(
+        &self,
+        orbit_seconds: f32,
+        camera: &crate::config::CameraConfig,
+        viewport_wh: (u32, u32),
+    ) {
+        let angle = if camera.orbit_enabled {
+            orbit_seconds * camera.orbit_speed
+        } else {
+            0.0
+        };
         let eye = self.scene_center
             + Vec3::new(
                 angle.cos() * self.scene_radius,
@@ -248,7 +260,8 @@ impl Renderer {
                 angle.sin() * self.scene_radius,
             );
         let view = Mat4::look_at_rh(eye, self.scene_center, Vec3::Y);
-        let aspect = self.config.width as f32 / self.config.height.max(1) as f32;
+        let (vw, vh) = viewport_wh;
+        let aspect = vw as f32 / vh.max(1) as f32;
         let proj = Mat4::perspective_rh(45f32.to_radians(), aspect, 0.5, self.scene_radius * 6.0);
         let view_proj = proj * view;
         self.queue.write_buffer(
@@ -260,14 +273,50 @@ impl Renderer {
         );
     }
 
+    /// Renders one frame. `viewport` is `(x, y, width, height)` in physical
+    /// pixels to draw the 3D scene into — `None` means "the whole surface"
+    /// (the screensaver's use case); `Some(rect)` lets a caller (the
+    /// settings app) reserve the rest of the window for its own UI, drawn
+    /// in a separate pass afterward without this renderer needing to know
+    /// anything about it.
     pub fn render(
         &mut self,
         orbit_seconds: f32,
-        round_instances: &[InstanceRaw],
-        square_instances: &[InstanceRaw],
-        joint_instances: &[InstanceRaw],
+        camera: &crate::config::CameraConfig,
+        viewport: Option<(u32, u32, u32, u32)>,
+        instances: &crate::instance::InstanceSets,
     ) -> Result<(), wgpu::SurfaceError> {
-        self.update_camera(orbit_seconds);
+        self.render_with(orbit_seconds, camera, viewport, instances, |_, _, _, _| {})
+    }
+
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    pub fn surface_format(&self) -> wgpu::TextureFormat {
+        self.config.format
+    }
+
+    /// Same as [`Self::render`], but calls `extra` with the same device,
+    /// queue, command encoder, and surface view right after the pipes pass
+    /// and before submit/present — letting a caller (the settings app) add
+    /// its own render pass (e.g. an egui overlay) into the exact same
+    /// frame, sharing GPU resources, without this type needing to know
+    /// anything about egui.
+    pub fn render_with(
+        &mut self,
+        orbit_seconds: f32,
+        camera: &crate::config::CameraConfig,
+        viewport: Option<(u32, u32, u32, u32)>,
+        instances: &crate::instance::InstanceSets,
+        extra: impl FnOnce(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView),
+    ) -> Result<(), wgpu::SurfaceError> {
+        let (vx, vy, vw, vh) = viewport.unwrap_or((0, 0, self.config.width, self.config.height));
+        self.update_camera(orbit_seconds, camera, (vw, vh));
 
         let frame = self.surface.get_current_texture()?;
         let view = frame
@@ -279,9 +328,9 @@ impl Renderer {
                 label: Some("frame encoder"),
             });
 
-        let round_buf = self.instance_buffer(round_instances, "round instances");
-        let square_buf = self.instance_buffer(square_instances, "square instances");
-        let joint_buf = self.instance_buffer(joint_instances, "joint instances");
+        let round_buf = self.instance_buffer(&instances.round_segments, "round instances");
+        let square_buf = self.instance_buffer(&instances.square_segments, "square instances");
+        let joint_buf = self.instance_buffer(&instances.joints, "joint instances");
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -313,26 +362,30 @@ impl Renderer {
 
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            pass.set_viewport(vx as f32, vy as f32, vw as f32, vh as f32, 0.0, 1.0);
+            pass.set_scissor_rect(vx, vy, vw, vh);
 
             self.draw_mesh_instances(
                 &mut pass,
                 &self.cylinder_mesh,
                 &round_buf,
-                round_instances.len() as u32,
+                instances.round_segments.len() as u32,
             );
             self.draw_mesh_instances(
                 &mut pass,
                 &self.cuboid_mesh,
                 &square_buf,
-                square_instances.len() as u32,
+                instances.square_segments.len() as u32,
             );
             self.draw_mesh_instances(
                 &mut pass,
                 &self.sphere_mesh,
                 &joint_buf,
-                joint_instances.len() as u32,
+                instances.joints.len() as u32,
             );
         }
+
+        extra(&self.device, &self.queue, &mut encoder, &view);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();

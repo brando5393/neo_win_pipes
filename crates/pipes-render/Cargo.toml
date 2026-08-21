@@ -1,0 +1,17 @@
+[package]
+name = "pipes-render"
+description = "Shared rendering + config layer: geometry generation, GPU instancing, the wgpu renderer, and the persisted AppConfig both pipes-app (the screensaver) and pipes-settings (the config app) read/write."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+pipes-core = { path = "../pipes-core" }
+wgpu = "0.19"
+winit = "0.29"
+bytemuck = { version = "1.16", features = ["derive"] }
+glam = "0.27"
+serde = { workspace = true }
+toml = "0.8"
+directories = "5"
+tracing = { workspace = true }

@@ -2,7 +2,9 @@
 resolver = "2"
 members = [
     "crates/pipes-core",
+    "crates/pipes-render",
     "crates/pipes-app",
+    "crates/pipes-settings",
 ]
 
 [workspace.package]

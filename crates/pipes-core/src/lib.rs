@@ -18,5 +18,5 @@ mod scene;
 
 pub use direction::Direction;
 pub use grid::{GridBounds, GridPos, OccupancyGrid};
-pub use pipe::{Color, JointKind, Pipe, PipeStyle, StepOutcome, TerminationReason};
-pub use scene::{Scene, SceneEvent, SimConfig};
+pub use pipe::{Color, JointKind, Pipe, PipeStyle, PipeStyleMode, StepOutcome, TerminationReason};
+pub use scene::{default_palette, Scene, SceneEvent, SimConfig};
