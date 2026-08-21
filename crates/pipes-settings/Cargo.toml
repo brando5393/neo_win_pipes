@@ -25,3 +25,13 @@ serde = { workspace = true }
 serde_json = "1"
 semver = "1"
 rfd = { version = "0.14", default-features = false, features = ["xdg-portal"] }
+
+# Not used directly: rfd's "xdg-portal" feature (the native Linux file
+# dialog, via ashpd) pulls in zbus without any async-backend feature
+# enabled, which fails to compile (missing async_io/async_fs/etc. — a
+# known ashpd/zbus feature-unification gap). Declaring zbus here with
+# "async-io" explicitly forces Cargo to unify the whole build's zbus
+# feature set to include it, fixing the transitive build with no code
+# of ours actually calling zbus.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "4", default-features = false, features = ["async-io"] }
