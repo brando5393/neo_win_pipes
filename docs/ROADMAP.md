@@ -244,6 +244,39 @@ for the full writeup per platform.
       certificate, which costs money — deliberately out of scope for a
       free hobby project unless that changes).
 
+#### Known issues (found testing the real v0.2.0 install — not yet fixed)
+
+- [ ] Clicking "Settings" from the Windows screensaver dialog doesn't open
+      Pipes Settings after a real install. `settings_app_candidates()` in
+      `crates/pipes-app/src/main.rs` looks right (current-exe dir, then
+      `%ProgramFiles%\neo_win_pipes\`), so likely tangled up with the
+      console-subsystem issue below — a console-subsystem child spawned
+      from the screensaver's restricted launch context may fail silently.
+      Needs a real repro with logs, not just re-reading the code.
+- [ ] Dissolve and teapot settings don't show up when Pipes Settings is
+      opened normally. Not actually missing from the code — `ui.rs`'s
+      `egui::SidePanel` has no `ScrollArea`, and the window is a fixed
+      1200×760 (`main.rs`). Dissolve (under "Grid size & reset") and the
+      teapot toggle (under "Pipe behavior") were the newest sections
+      added, so they're pushed below the visible area with no way to
+      scroll to them. Fix: wrap the drawer's contents in a `ScrollArea`.
+- [ ] A console window (the tracing log output, green/yellow text) pops
+      up whenever Pipes Settings launches, comes to the front, and
+      closing it kills the whole app — because closing a console window
+      sends its default control handler a close event that terminates
+      the attached process. Root cause: neither `pipes-app` nor
+      `pipes-settings` sets `#![windows_subsystem = "windows"]`, so both
+      default to the console subsystem on Windows. Fix:
+      `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`
+      in both crates' `main.rs` — keeps the console for `cargo run` dev
+      builds, drops it from the shipped release build.
+- [ ] No app icon: no `.ico` anywhere in the repo, no build-time icon
+      embedding (would need e.g. the `embed-resource` or `winres` crate
+      plus a `build.rs`, then referencing it from `installer/main.wxs`'s
+      Start Menu shortcut and the `.scr`/`.exe` themselves). Both
+      binaries currently show Windows' generic default exe icon. Needs
+      a few design concepts and a pick before the next release.
+
 ### macOS / Linux — not started
 
 - [ ] macOS: signed `.pkg`/`.dmg` installing the `.saver` bundle
