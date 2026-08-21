@@ -5,10 +5,14 @@ use crate::grid::{GridPos, OccupancyGrid};
 
 /// How a turn in the pipe's path is rendered. The original screensaver mixes
 /// smooth elbow bends with ball joints; we keep both and pick per-turn.
+/// `Teapot` is the classic easter egg (see `docs/RESEARCH.md`): a rare,
+/// separate roll from Elbow/Ball, not a third "normal" option — see
+/// `Pipe::step`'s `teapot_probability` parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JointKind {
     Elbow,
     Ball,
+    Teapot,
 }
 
 /// Cross-section shape of a pipe. `Square` pipes are the classic "mixed
@@ -135,6 +139,7 @@ impl Pipe {
     /// much higher than turning (matches the original's tendency to run long
     /// straight stretches punctuated by occasional turns), and never
     /// reversing directly into the cell just vacated.
+    #[allow(clippy::too_many_arguments)]
     pub fn step(
         &mut self,
         grid: &mut OccupancyGrid,
@@ -142,6 +147,7 @@ impl Pipe {
         straight_weight: u32,
         turn_weight: u32,
         elbow_probability: f32,
+        teapot_probability: f32,
         max_len: usize,
     ) -> StepOutcome {
         if !self.alive {
@@ -195,7 +201,9 @@ impl Pipe {
 
         let turned = chosen != self.direction;
         if turned {
-            let joint = if rng.gen::<f32>() < elbow_probability {
+            let joint = if rng.gen::<f32>() < teapot_probability {
+                JointKind::Teapot
+            } else if rng.gen::<f32>() < elbow_probability {
                 JointKind::Elbow
             } else {
                 JointKind::Ball
@@ -260,6 +268,62 @@ mod tests {
     }
 
     #[test]
+    fn teapot_probability_one_makes_every_turn_a_teapot() {
+        let mut grid = OccupancyGrid::new(GridBounds::new(20, 20, 20));
+        let mut p = Pipe::new(
+            0,
+            PipeStyle::Round,
+            Color::new(1.0, 1.0, 1.0),
+            GridPos::new(10, 10, 10),
+            Direction::PosX,
+        );
+        grid.occupy(p.head());
+        let mut r = rng();
+        // straight_weight 1, turn_weight 50: force lots of turns so we
+        // actually get joints to check within a bounded number of steps.
+        for _ in 0..100 {
+            p.step(&mut grid, &mut r, 1, 50, 0.75, 1.0, 10_000);
+        }
+        assert!(
+            !p.joints().is_empty(),
+            "expected at least one turn with turn_weight this high"
+        );
+        assert!(
+            p.joints()
+                .iter()
+                .all(|(_, kind)| *kind == JointKind::Teapot),
+            "teapot_probability 1.0 must make every joint a teapot"
+        );
+    }
+
+    #[test]
+    fn teapot_probability_zero_never_produces_a_teapot() {
+        let mut grid = OccupancyGrid::new(GridBounds::new(20, 20, 20));
+        let mut p = Pipe::new(
+            0,
+            PipeStyle::Round,
+            Color::new(1.0, 1.0, 1.0),
+            GridPos::new(10, 10, 10),
+            Direction::PosX,
+        );
+        grid.occupy(p.head());
+        let mut r = rng();
+        for _ in 0..100 {
+            p.step(&mut grid, &mut r, 1, 50, 0.75, 0.0, 10_000);
+        }
+        assert!(
+            !p.joints().is_empty(),
+            "expected at least one turn with turn_weight this high"
+        );
+        assert!(
+            p.joints()
+                .iter()
+                .all(|(_, kind)| *kind != JointKind::Teapot),
+            "teapot_probability 0.0 must never produce a teapot"
+        );
+    }
+
+    #[test]
     fn step_never_reverses_into_previous_cell() {
         let mut grid = OccupancyGrid::new(GridBounds::new(20, 20, 20));
         let mut p = Pipe::new(
@@ -274,7 +338,7 @@ mod tests {
         for _ in 0..200 {
             let before = p.head();
             let dir_before = p.direction();
-            let outcome = p.step(&mut grid, &mut r, 10, 1, 0.75, 10_000);
+            let outcome = p.step(&mut grid, &mut r, 10, 1, 0.75, 0.0, 10_000);
             if let StepOutcome::Terminated(_) = outcome {
                 break;
             }
@@ -298,7 +362,8 @@ mod tests {
         grid.occupy(p.head());
         let mut r = rng();
         for _ in 0..50 {
-            if let StepOutcome::Terminated(_) = p.step(&mut grid, &mut r, 10, 1, 0.75, 10_000) {
+            if let StepOutcome::Terminated(_) = p.step(&mut grid, &mut r, 10, 1, 0.75, 0.0, 10_000)
+            {
                 break;
             }
             assert_ne!(p.head(), GridPos::new(5, 5, 5));
@@ -319,7 +384,7 @@ mod tests {
         grid.occupy(p.head());
         let mut r = rng();
         for _ in 0..100 {
-            let outcome = p.step(&mut grid, &mut r, 10, 1, 0.75, 10_000);
+            let outcome = p.step(&mut grid, &mut r, 10, 1, 0.75, 0.0, 10_000);
             assert!(bounds.contains(p.head()));
             if let StepOutcome::Terminated(_) = outcome {
                 break;
@@ -344,7 +409,7 @@ mod tests {
             Direction::PosX,
         );
         let mut r = rng();
-        let outcome = p.step(&mut grid, &mut r, 10, 1, 0.75, 10_000);
+        let outcome = p.step(&mut grid, &mut r, 10, 1, 0.75, 0.0, 10_000);
         assert_eq!(outcome, StepOutcome::Terminated(TerminationReason::Stuck));
         assert!(!p.is_alive());
     }
@@ -363,7 +428,7 @@ mod tests {
         let mut r = rng();
         let mut last = StepOutcome::AdvancedStraight;
         for _ in 0..10 {
-            last = p.step(&mut grid, &mut r, 10, 1, 0.75, 3);
+            last = p.step(&mut grid, &mut r, 10, 1, 0.75, 0.0, 3);
         }
         assert_eq!(
             last,
@@ -386,7 +451,9 @@ mod tests {
             grid.occupy(p.head());
             let mut r = Pcg32::new(7, 13);
             for _ in 0..40 {
-                if let StepOutcome::Terminated(_) = p.step(&mut grid, &mut r, 10, 1, 0.75, 10_000) {
+                if let StepOutcome::Terminated(_) =
+                    p.step(&mut grid, &mut r, 10, 1, 0.75, 0.0, 10_000)
+                {
                     break;
                 }
             }

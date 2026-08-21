@@ -57,6 +57,7 @@ pub struct Renderer {
     cylinder_mesh: GpuMesh,
     cuboid_mesh: GpuMesh,
     sphere_mesh: GpuMesh,
+    teapot_mesh: GpuMesh,
     scene_center: Vec3,
     scene_radius: f32,
 }
@@ -188,7 +189,19 @@ impl Renderer {
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: Some(wgpu::Face::Back),
+                // No backface culling: lighting uses each vertex's authored
+                // normal directly (see shader.wgsl), not a winding-derived
+                // face normal, so culling buys nothing but a very small
+                // amount of fill-rate savings at this scene's tiny polygon
+                // counts — and it isn't free to get right by hand for every
+                // procedural mesh. Concretely: the teapot's lathed body/
+                // spout came out with inconsistent winding relative to the
+                // other meshes (only caught by actually launching it and
+                // looking, not by any geometry unit test), and got silently
+                // culled to a sliver. Rather than hand-verify winding for
+                // every future mesh, disabling culling removes the whole
+                // failure mode.
+                cull_mode: None,
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -205,6 +218,7 @@ impl Renderer {
         let cylinder_mesh = GpuMesh::upload(&device, &geometry::cylinder(1.0, 16), "cylinder");
         let cuboid_mesh = GpuMesh::upload(&device, &geometry::cuboid(1.0), "cuboid");
         let sphere_mesh = GpuMesh::upload(&device, &geometry::sphere(1.0, 12, 16), "sphere");
+        let teapot_mesh = GpuMesh::upload(&device, &geometry::teapot(), "teapot");
 
         let (bw, bh, bd) = scene_bounds;
         let scene_center = Vec3::new(bw as f32, bh as f32, bd as f32) * 0.5;
@@ -222,6 +236,7 @@ impl Renderer {
             cylinder_mesh,
             cuboid_mesh,
             sphere_mesh,
+            teapot_mesh,
             scene_center,
             scene_radius,
         }
@@ -331,6 +346,7 @@ impl Renderer {
         let round_buf = self.instance_buffer(&instances.round_segments, "round instances");
         let square_buf = self.instance_buffer(&instances.square_segments, "square instances");
         let joint_buf = self.instance_buffer(&instances.joints, "joint instances");
+        let teapot_buf = self.instance_buffer(&instances.teapots, "teapot instances");
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -382,6 +398,12 @@ impl Renderer {
                 &self.sphere_mesh,
                 &joint_buf,
                 instances.joints.len() as u32,
+            );
+            self.draw_mesh_instances(
+                &mut pass,
+                &self.teapot_mesh,
+                &teapot_buf,
+                instances.teapots.len() as u32,
             );
         }
 

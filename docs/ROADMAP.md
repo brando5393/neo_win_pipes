@@ -63,6 +63,33 @@ feature branch.
       fall back for the fields that were actually missing. Fixed on all
       four types; regression-tested with a fixture file missing the new
       fields but customizing others, confirming the others survive.
+- [x] Teapot easter egg: a rare, separate roll (`JointKind::Teapot`,
+      `SimConfig::teapot_easter_egg_enabled` + `teapot_probability`,
+      checked before the elbow/ball roll) renders a procedural teapot
+      mesh (`pipes_render::geometry::teapot()` — lathed body/spout,
+      torus-arc handle, sphere knob) at a joint instead of the normal
+      ball/elbow. Not the exact historical Utah teapot control-point
+      dataset (not available to copy correctly) — an honest procedural
+      approximation. Two real bugs only caught by actually rendering it
+      and looking (unit tests checked well-formedness and vertex
+      distance-from-origin, neither of which catches these):
+      (1) `lathe()`'s triangle winding turned out backwards relative to
+      the mesh's own vertex normals, which — combined with backface
+      culling — silently discarded most of the body/spout, leaving only
+      a stray sliver of the (correctly-wound) handle visible. Fixed by
+      disabling backface culling in the shared pipeline entirely rather
+      than hand-deriving winding per mesh: lighting here uses each
+      vertex's authored normal directly, not a winding-derived face
+      normal, so culling buys negligible fill-rate savings at this
+      scene's tiny polygon counts against a real, easy-to-reintroduce
+      failure mode. (2) Even after that, the first spout profile was a
+      full 1.0-unit-long cone translated out past the body's own 0.5
+      radius, so the whole mesh's bounding box was ~2 units wide against
+      ~1.1 tall — a long flat bar, not a teapot. Fixed by shortening the
+      spout and moving its base back to the body's actual surface;
+      added a bounding-box aspect-ratio regression test
+      (`teapot_is_well_formed_and_roughly_teapot_sized`) since the
+      existing per-vertex distance check didn't catch it.
 
 ## Phase 2.5 — Settings app (shipped)
 
@@ -87,10 +114,10 @@ feature branch.
 - [x] Wired up as the Windows `.scr`'s `/c` handler (Phase 3): `pipes-app`
       spawns `pipes-settings` as a child process and exits, rather than
       reimplementing a config UI inside the `.scr` itself.
-- [ ] Not yet exposed in the drawer: `straight_weight`/`turn_weight` ratio
-      and `elbow_probability`, even though both are configurable in
-      `SimConfig` and validated as wanted (`pipes.sh -s`) per
-      `docs/FEATURE_IDEAS.md`. Small follow-up.
+- [x] "Pipe behavior" drawer section exposes `straight_weight`/
+      `turn_weight` ratio and `elbow_probability` sliders (validated as
+      wanted — `pipes.sh -s` — per `docs/FEATURE_IDEAS.md`), plus the
+      teapot easter egg toggle/probability.
 
 ## Phase 3 — Native screensaver wrappers
 

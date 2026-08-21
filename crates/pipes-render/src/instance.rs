@@ -26,6 +26,11 @@ pub struct PipeVisuals {
     pub ball_joint_scale: f32,
     pub elbow_joint_scale: f32,
     pub cap_scale: f32,
+    /// Size multiplier (relative to `pipe_radius`) for the rare teapot
+    /// easter-egg joint (see `pipes_core::JointKind::Teapot`). Bigger than
+    /// the ball/elbow scales since the teapot mesh needs to actually read
+    /// as a teapot rather than a blob.
+    pub teapot_scale: f32,
 }
 
 impl Default for PipeVisuals {
@@ -35,6 +40,7 @@ impl Default for PipeVisuals {
             ball_joint_scale: 1.4,
             elbow_joint_scale: 1.05,
             cap_scale: 1.1,
+            teapot_scale: 3.5,
         }
     }
 }
@@ -44,6 +50,7 @@ pub struct InstanceSets {
     pub round_segments: Vec<InstanceRaw>,
     pub square_segments: Vec<InstanceRaw>,
     pub joints: Vec<InstanceRaw>,
+    pub teapots: Vec<InstanceRaw>,
 }
 
 fn to_vec3(p: GridPos) -> Vec3 {
@@ -110,11 +117,20 @@ fn push_pipe(pipe: &Pipe, visuals: &PipeVisuals, shrink: f32, sets: &mut Instanc
     }
 
     for &(index, kind) in pipe.joints() {
-        let scale = match kind {
-            JointKind::Ball => visuals.ball_joint_scale,
-            JointKind::Elbow => visuals.elbow_joint_scale,
-        } * radius;
-        sets.joints.push(point_instance(path[index], scale, color));
+        match kind {
+            JointKind::Teapot => {
+                let scale = visuals.teapot_scale * radius;
+                sets.teapots.push(point_instance(path[index], scale, color));
+            }
+            JointKind::Ball | JointKind::Elbow => {
+                let scale = match kind {
+                    JointKind::Ball => visuals.ball_joint_scale,
+                    JointKind::Elbow => visuals.elbow_joint_scale,
+                    JointKind::Teapot => unreachable!(),
+                } * radius;
+                sets.joints.push(point_instance(path[index], scale, color));
+            }
+        }
     }
 
     if let Some(&start) = path.first() {
@@ -193,6 +209,34 @@ mod tests {
         assert!(sets.round_segments.is_empty());
         assert!(sets.square_segments.is_empty());
         assert!(sets.joints.is_empty());
+    }
+
+    #[test]
+    fn teapot_joints_land_in_their_own_bucket_not_the_regular_joints_bucket() {
+        // teapot_probability 1.0 makes every turn a teapot (see
+        // pipes_core::pipe::tests for the roll logic itself) — here we
+        // only need to confirm build_instances routes JointKind::Teapot
+        // into `sets.teapots` rather than `sets.joints`.
+        let mut scene = Scene::new(
+            SimConfig {
+                max_pipes: 1,
+                bounds: pipes_core::GridBounds::new(20, 20, 20),
+                straight_weight: 1,
+                turn_weight: 50,
+                teapot_easter_egg_enabled: true,
+                teapot_probability: 1.0,
+                ..SimConfig::default()
+            },
+            1,
+        );
+        for _ in 0..30 {
+            scene.step();
+        }
+        let sets = build_instances(&scene, &PipeVisuals::default());
+        assert!(
+            !sets.teapots.is_empty(),
+            "expected at least one teapot instance with teapot_probability 1.0 and heavy turning"
+        );
     }
 
     #[test]

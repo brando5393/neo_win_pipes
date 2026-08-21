@@ -57,6 +57,16 @@ pub struct SimConfig {
     /// How many ticks the dissolve-away animation takes. Only meaningful
     /// when `dissolve_on_reset` is true.
     pub dissolve_duration_ticks: u32,
+    /// The classic screensaver's teapot easter egg: a rare, separate roll
+    /// (see `JointKind::Teapot`) that occasionally renders a Utah teapot
+    /// at a joint instead of the normal ball/elbow. Toggleable; when
+    /// `false`, a teapot can never occur regardless of `teapot_probability`.
+    pub teapot_easter_egg_enabled: bool,
+    /// Probability a turn becomes a teapot joint instead of ball/elbow,
+    /// checked before the elbow/ball roll. Kept small and rare to match
+    /// how sparingly the original used it. Only takes effect when
+    /// `teapot_easter_egg_enabled` is true.
+    pub teapot_probability: f32,
 }
 
 impl Default for SimConfig {
@@ -75,6 +85,8 @@ impl Default for SimConfig {
             lock_colors_across_resets: false,
             dissolve_on_reset: true,
             dissolve_duration_ticks: 15,
+            teapot_easter_egg_enabled: true,
+            teapot_probability: 0.02,
         }
     }
 }
@@ -244,12 +256,18 @@ impl Scene {
             if !pipe.is_alive() {
                 continue;
             }
+            let teapot_probability = if self.config.teapot_easter_egg_enabled {
+                self.config.teapot_probability
+            } else {
+                0.0
+            };
             let outcome = pipe.step(
                 &mut self.grid,
                 &mut self.rng,
                 self.config.straight_weight,
                 self.config.turn_weight,
                 self.config.elbow_probability,
+                teapot_probability,
                 self.config.max_pipe_length,
             );
             if let StepOutcome::Terminated(reason) = outcome {

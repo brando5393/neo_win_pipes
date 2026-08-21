@@ -142,6 +142,20 @@ pub fn draw(
                             .text("Elbow joint chance (vs. ball joint)"),
                     )
                     .changed();
+                outcome.sim_changed |= ui
+                    .checkbox(
+                        &mut config.sim.teapot_easter_egg_enabled,
+                        "Teapot easter egg (classic Utah teapot, very rare)",
+                    )
+                    .changed();
+                ui.add_enabled_ui(config.sim.teapot_easter_egg_enabled, |ui| {
+                    outcome.sim_changed |= ui
+                        .add(
+                            Slider::new(&mut config.sim.teapot_probability, 0.0..=0.25)
+                                .text("Teapot chance"),
+                        )
+                        .changed();
+                });
             });
 
             ui.collapsing("Speed & camera", |ui| {

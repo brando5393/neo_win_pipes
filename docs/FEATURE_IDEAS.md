@@ -36,8 +36,8 @@ for, not just what seemed neat.
 - ~~Preset "themes" bundling palette + style + speed together~~ — **shipped**: "Classic '96"/"Neon"/"Monochrome" one-click bundles in the Themes row.
 - A pause/resume hotkey in the live preview (distinct from the runtime keyboard shortcuts `pipes.sh` has for adjusting parameters). Still open — not picked when the rest of this batch was chosen.
 - ~~Config export/import~~ — **shipped**: "Export…"/"Import…" buttons using a native file dialog (`rfd`).
-- The classic screensaver's teapot easter egg (a Utah teapot occasionally rendering at a joint instead of the normal ball/elbow) — in progress.
-- Multi-monitor configurable behavior (promoted up from "Modern-platform expectations" below) — in progress.
+- ~~The classic screensaver's teapot easter egg~~ — **shipped**: a rare, separate roll (`JointKind::Teapot`, `teapot_easter_egg_enabled` + `teapot_probability`) renders a procedural teapot mesh (`pipes_render::geometry::teapot()` — lathed body/spout, torus-arc handle, sphere knob; not the exact historical Utah teapot control-point dataset, an honest approximation) at a joint instead of the normal ball/elbow.
+- Multi-monitor configurable behavior (promoted up from "Modern-platform expectations" below) — not started.
 
 ## Where this feeds in
 

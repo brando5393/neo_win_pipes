@@ -74,6 +74,7 @@ impl AppConfig {
         self.sim.elbow_probability = self.sim.elbow_probability.clamp(0.0, 1.0);
         self.sim.max_pipe_length = self.sim.max_pipe_length.clamp(10, 100_000);
         self.sim.dissolve_duration_ticks = self.sim.dissolve_duration_ticks.clamp(1, 300);
+        self.sim.teapot_probability = self.sim.teapot_probability.clamp(0.0, 1.0);
         if self.sim.palette.is_empty() {
             self.sim.palette = pipes_core::default_palette();
         }
@@ -81,6 +82,7 @@ impl AppConfig {
         self.visuals.ball_joint_scale = self.visuals.ball_joint_scale.clamp(1.0, 3.0);
         self.visuals.elbow_joint_scale = self.visuals.elbow_joint_scale.clamp(1.0, 3.0);
         self.visuals.cap_scale = self.visuals.cap_scale.clamp(1.0, 3.0);
+        self.visuals.teapot_scale = self.visuals.teapot_scale.clamp(1.0, 8.0);
         self.camera.orbit_speed = self.camera.orbit_speed.clamp(0.0, 2.0);
         self.tick_interval_ms = self.tick_interval_ms.clamp(10, 2000);
     }
