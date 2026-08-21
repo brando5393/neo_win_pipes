@@ -16,16 +16,26 @@ feature branch.
 
 ## Phase 2 — Rendering
 
-- [ ] `pipes-app` grows a `winit` window + `wgpu` renderer.
-- [ ] Geometry generation: turn a `Pipe`'s path + joints into cylinder /
-      sphere / torus meshes (pure functions in `pipes-core` or a small
-      `pipes-geometry` crate, still unit-testable without a GPU: assert on
-      vertex/index counts and bounds, not pixels).
-- [ ] Chrome-like material (specular + simple reflection or an env map),
-      slowly drifting camera, per [RESEARCH.md](RESEARCH.md).
-- [ ] Manual visual verification against the research doc's description of
-      the original (screenshots checked into `docs/screenshots/` for
-      regression reference).
+- [x] `pipes-app` grows a `winit` window + `wgpu` renderer.
+- [x] Geometry generation: `pipes-app::geometry` turns segments/joints into
+      cylinder / cuboid / sphere meshes (pure functions, unit-tested on
+      vertex/index counts, normal validity, and radius bounds — no GPU
+      needed to verify shape correctness).
+- [x] Instancing: `pipes-app::instance` converts a live `Scene` into
+      per-mesh GPU instance buffers (round segments, square segments,
+      joints/caps), unit-tested for degenerate-direction NaN safety.
+- [x] Slowly drifting orbit camera around the scene.
+- [x] Manual visual verification: confirmed rendering live —
+      [`docs/screenshots/phase2-first-render-seed3.png`](screenshots/phase2-first-render-seed3.png).
+- [ ] True chrome material: current shading is Lambertian + Blinn-Phong
+      specular (looks decent, reads as "shiny," but isn't an environment
+      reflection like the original's chrome). Revisit with an env/cube map
+      if it's worth the complexity.
+- [ ] Elbow joints currently render as a (slightly smaller) sphere rather
+      than a smooth torus bend — visually fine, not geometrically accurate
+      to "elbow." Torus geometry is a nice-to-have polish item.
+- [x] Checked-in reference screenshot in `docs/screenshots/` (one so far;
+      add more as the renderer evolves for visual regression comparison).
 
 ## Phase 3 — Native screensaver wrappers
 

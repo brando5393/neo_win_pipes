@@ -1,6 +1,6 @@
 [package]
 name = "pipes-app"
-description = "Headless simulation runner for pipes-core, with human-readable structured logging. This is the Phase 1 binary; Phase 2 adds a windowed wgpu renderer on top of the same pipes-core engine (see docs/ROADMAP.md)."
+description = "Windowed renderer for pipes-core: turns the simulation into 3D pipe geometry and draws it with wgpu."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,3 +13,8 @@ path = "src/main.rs"
 pipes-core = { path = "../pipes-core" }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+wgpu = "0.19"
+winit = "0.29"
+bytemuck = { version = "1.16", features = ["derive"] }
+pollster = "0.3"
+glam = "0.27"

@@ -57,19 +57,32 @@ just say "seed 12345, tick 800" instead of a screen recording.
 
 ## `pipes-app`
 
-Phase 1 (current): a headless CLI (`cargo run -p pipes-app -- --ticks N
---seed S`) that runs `Scene` and logs it with `tracing` in human-readable
-form — see [LOGGING.md](LOGGING.md). It exists to exercise and observe the
-engine end-to-end before there's a renderer to look at.
+A `winit` + `wgpu` windowed renderer, structured in three parts:
 
-Phase 2 (planned): the same binary grows a `wgpu` + `winit` window that
-turns each `Pipe`'s path + joints into geometry (cylinders for straight
-runs, spheres/torus-elbows for joints) and renders it with a chrome-like
-material, plus a slowly drifting camera — matching the original's look per
-[RESEARCH.md](RESEARCH.md). `wgpu` was chosen over raw OpenGL/Direct3D
-because one API target compiles to Vulkan (Linux), Metal (macOS), and
-DirectX12/Vulkan (Windows), which is what makes one Rust codebase realistic
-across all three OSes.
+- **`geometry`** — pure procedural mesh generation (unit cylinder, cuboid,
+  UV sphere), no GPU handle involved, so shape correctness (vertex/index
+  counts, unit normals, radius bounds) is unit-tested without a window.
+- **`instance`** — converts a live `pipes_core::Scene` into per-mesh GPU
+  instance data: one cylinder or cuboid instance per path segment
+  (depending on `PipeStyle`), one sphere instance per joint (scaled up for
+  `JointKind::Ball`, slightly smaller for `Elbow`) plus start/end cap
+  spheres. Also unit-tested (e.g. every cardinal direction must produce a
+  finite model matrix — a regression guard on `Quat::from_rotation_arc`'s
+  degenerate antiparallel case).
+- **`renderer`** — the actual wgpu setup: instanced pipeline, a
+  Lambertian + Blinn-Phong shader (`shader.wgsl`) for a "shiny metal" look,
+  depth testing, and a camera that slowly orbits the scene per
+  `docs/RESEARCH.md`'s note on the original's optional rotation.
+
+`main.rs` ticks the `Scene` on a fixed interval (independent of frame
+rate), rebuilds instance buffers from the current scene state every frame,
+and renders. `wgpu` was chosen over raw OpenGL/Direct3D because one API
+target compiles to Vulkan (Linux), Metal (macOS), and DirectX12/Vulkan
+(Windows) — what makes one Rust codebase realistic across all three OSes.
+
+Known simplifications, tracked in [ROADMAP.md](ROADMAP.md): the material
+is specular-only, not a true chrome environment reflection; elbow joints
+render as a small sphere rather than a smooth torus bend.
 
 ## Native screensaver wrappers (Phase 3, not yet started)
 

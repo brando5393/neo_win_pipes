@@ -1,47 +1,46 @@
-//! Phase 1 entry point: runs the pipes-core simulation headlessly and logs
-//! it in human-readable form. There is no window or renderer yet — this
-//! exists to exercise and observe the engine end-to-end before Phase 2 adds
-//! a wgpu-based window (see docs/ROADMAP.md). Run with `cargo run -p
-//! pipes-app -- --ticks 500 --seed 1`.
+//! Windowed entry point: ticks the pipes-core simulation on a fixed
+//! interval and renders it with wgpu. Run with `cargo run -p pipes-app --
+//! --seed 1`; press Escape or close the window to quit.
 
-use std::time::Instant;
+mod geometry;
+mod instance;
+mod renderer;
+
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use pipes_core::{Scene, SceneEvent, SimConfig};
 use tracing::info;
+use winit::dpi::LogicalSize;
+use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
+use winit::event_loop::EventLoop;
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::WindowBuilder;
+
+use instance::{build_instances, PipeVisuals};
+use renderer::Renderer;
 
 struct Args {
-    ticks: u64,
     seed: u64,
 }
 
 fn parse_args() -> Args {
-    let mut ticks = 200u64;
     let mut seed = 1u64;
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         match flag.as_str() {
-            "--ticks" => {
-                if let Some(v) = args.next() {
-                    ticks = v.parse().unwrap_or(ticks);
-                }
-            }
             "--seed" => {
                 if let Some(v) = args.next() {
                     seed = v.parse().unwrap_or(seed);
                 }
             }
-            other => {
-                eprintln!("warning: ignoring unknown argument '{other}'");
-            }
+            other => eprintln!("warning: ignoring unknown argument '{other}'"),
         }
     }
-    Args { ticks, seed }
+    Args { seed }
 }
 
 fn init_logging() {
-    // Human-readable, single-line-per-event output with target + level, no
-    // JSON. See docs/LOGGING.md for the full field/event catalog and the
-    // rationale for keeping this readable-first rather than machine-first.
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -51,45 +50,83 @@ fn init_logging() {
         .init();
 }
 
+const TICK_INTERVAL: Duration = Duration::from_millis(120);
+
 fn main() {
     init_logging();
     let args = parse_args();
 
-    info!(
-        ticks = args.ticks,
-        seed = args.seed,
-        "neo_win_pipes starting (headless simulation)"
+    let event_loop = EventLoop::new().expect("failed to create event loop");
+    let window = Arc::new(
+        WindowBuilder::new()
+            .with_title("neo_win_pipes")
+            .with_inner_size(LogicalSize::new(1280.0, 800.0))
+            .build(&event_loop)
+            .expect("failed to create window"),
     );
+
+    let config = SimConfig::default();
+    let bounds = (
+        config.bounds.width,
+        config.bounds.height,
+        config.bounds.depth,
+    );
+    let mut scene = Scene::new(config, args.seed);
+    let visuals = PipeVisuals::default();
+
+    let mut renderer = pollster::block_on(Renderer::new(window.clone(), bounds));
+
+    info!(seed = args.seed, "neo_win_pipes window opened");
     let start = Instant::now();
+    let mut last_tick = Instant::now();
 
-    let mut scene = Scene::new(SimConfig::default(), args.seed);
-    let mut spawned = 0u64;
-    let mut terminated = 0u64;
-    let mut resets = 0u64;
+    event_loop
+        .run(move |event, elwt| match event {
+            Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
+                WindowEvent::CloseRequested => elwt.exit(),
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            physical_key: PhysicalKey::Code(KeyCode::Escape),
+                            state: ElementState::Pressed,
+                            ..
+                        },
+                    ..
+                } => elwt.exit(),
+                WindowEvent::Resized(size) => renderer.resize(size.width, size.height),
+                WindowEvent::RedrawRequested => {
+                    if last_tick.elapsed() >= TICK_INTERVAL {
+                        last_tick = Instant::now();
+                        for event in scene.step() {
+                            if event == SceneEvent::SceneReset {
+                                info!("scene reset — restarting");
+                            }
+                        }
+                    }
 
-    for t in 0..args.ticks {
-        for event in scene.step() {
-            match event {
-                SceneEvent::PipeSpawned { .. } => spawned += 1,
-                SceneEvent::PipeTerminated { .. } => terminated += 1,
-                SceneEvent::SceneReset => resets += 1,
-            }
-        }
-        if t % 50 == 0 {
-            info!(
-                tick = t,
-                live_pipes = scene.pipes().iter().filter(|p| p.is_alive()).count(),
-                occupancy = scene.grid().occupancy_ratio(),
-                "tick summary"
-            );
-        }
-    }
-
-    info!(
-        elapsed_ms = start.elapsed().as_millis(),
-        total_pipes_spawned = spawned,
-        total_pipes_terminated = terminated,
-        total_resets = resets,
-        "neo_win_pipes finished"
-    );
+                    let sets = build_instances(&scene, &visuals);
+                    let orbit_seconds = start.elapsed().as_secs_f32();
+                    if let Err(err) = renderer.render(
+                        orbit_seconds,
+                        &sets.round_segments,
+                        &sets.square_segments,
+                        &sets.joints,
+                    ) {
+                        match err {
+                            wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+                                let size = window.inner_size();
+                                renderer.resize(size.width, size.height);
+                            }
+                            wgpu::SurfaceError::OutOfMemory => elwt.exit(),
+                            wgpu::SurfaceError::Timeout => {}
+                        }
+                    }
+                    window.request_redraw();
+                }
+                _ => {}
+            },
+            Event::AboutToWait => window.request_redraw(),
+            _ => {}
+        })
+        .expect("event loop error");
 }

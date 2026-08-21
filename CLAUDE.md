@@ -11,17 +11,18 @@ fullscreen demo app. Full context: `docs/RESEARCH.md` (what the original
 did and why), `docs/ARCHITECTURE.md` (how this codebase is structured),
 `docs/ROADMAP.md` (what phase we're in).
 
-**Current phase**: Phase 1 — headless simulation core only. No window, no
-renderer, no installer yet. Don't assume Phase 2+ features exist; check
-`docs/ROADMAP.md` before referencing rendering or packaging as if built.
+**Current phase**: Phase 2 — windowed `wgpu` rendering is live
+(`pipes-app::geometry`/`instance`/`renderer`). No native screensaver
+packaging or installers yet. Check `docs/ROADMAP.md` before assuming
+Phase 3/4 (native `.scr`/`.saver`/xscreensaver wrappers, installers) exist.
 
 ## Commands
 
 ```sh
 cargo build --workspace
-cargo test --workspace          # must pass before any change is done
-cargo run -p pipes-app -- --ticks 500 --seed 1
-RUST_LOG=debug cargo run -p pipes-app -- --ticks 500 --seed 1
+cargo test --workspace          # must pass before any change is done — 31 tests as of Phase 2
+cargo run -p pipes-app -- --seed 1        # opens a window
+RUST_LOG=debug cargo run -p pipes-app -- --seed 1
 ```
 
 If linking fails on Windows-on-ARM64, see the caveat in

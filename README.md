@@ -5,15 +5,17 @@ classic Windows "3D Pipes" screensaver — the chrome pipes one, from Windows
 NT 4.0 onward. Goal: an installable, OS-selectable screensaver on all three
 platforms, built on a fully unit-tested Rust simulation core.
 
-**Status: Phase 1 — headless simulation core.** There's no window or
-installer yet. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for what's built
-and what's next.
+**Status: Phase 2 — windowed rendering.** Real pipes, growing and turning
+in a real window. No installer/native screensaver packaging yet. See
+[`docs/ROADMAP.md`](docs/ROADMAP.md) for what's built and what's next.
+
+![A window full of colored 3D pipes growing through a grid](docs/screenshots/phase2-first-render-seed3.png)
 
 ## Quick start
 
 ```sh
-cargo test --workspace                            # run the full test suite
-cargo run -p pipes-app -- --ticks 500 --seed 1     # run the simulation, headless, with logs
+cargo test --workspace          # run the full test suite (31 tests)
+cargo run -p pipes-app -- --seed 1   # open the window and watch it run
 ```
 
 See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for prerequisites

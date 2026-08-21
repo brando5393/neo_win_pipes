@@ -1,26 +1,24 @@
 # Usage
 
-> **Status**: Phase 1 (headless simulation core) is what exists today.
-> There is no window, no installer, and nothing to "select as your
-> screensaver" yet — see [ROADMAP.md](ROADMAP.md) for what's coming and
-> when this document will start covering it.
+> **Status**: Phase 2 (windowed rendering) is live — there's a real window
+> with real pipes now. There is still no installer and nothing to "select
+> as your screensaver" yet — see [ROADMAP.md](ROADMAP.md) for Phase 3/4.
 
-## Running the simulation today
-
-The only user-facing artifact right now is `pipes-app`, a CLI that runs the
-simulation headlessly and logs what it's doing (see
-[LOGGING.md](LOGGING.md) for how to read the output):
+## Running it
 
 ```sh
-cargo run -p pipes-app -- --ticks 500 --seed 1
+cargo run -p pipes-app -- --seed 1
 ```
+
+A window opens and pipes start growing immediately. Press **Escape** or
+close the window to quit. See [LOGGING.md](LOGGING.md) for how to read the
+console output alongside the window.
 
 ### Options
 
-| Flag       | Default | Meaning |
-|------------|---------|---------|
-| `--ticks`  | `200`   | How many simulation steps to run before exiting. |
-| `--seed`   | `1`     | RNG seed. Same seed + same tick count always reproduces the exact same run — see [ARCHITECTURE.md](ARCHITECTURE.md#pipes-core) on determinism. |
+| Flag     | Default | Meaning |
+|----------|---------|---------|
+| `--seed` | `1`     | RNG seed. Same seed always reproduces the exact same run — see [ARCHITECTURE.md](ARCHITECTURE.md#pipes-core) on determinism. |
 
 ### Environment variables
 
@@ -28,18 +26,18 @@ cargo run -p pipes-app -- --ticks 500 --seed 1
 |------------|---------|
 | `RUST_LOG` | Log verbosity/filter, e.g. `RUST_LOG=debug`. See [LOGGING.md](LOGGING.md). |
 
-## Once Phase 2/3/4 land
+### On Windows-on-ARM64
 
-This section will be filled in as each phase ships:
+If `cargo run` fails to link, see the toolchain caveat in
+[DEVELOPMENT.md](DEVELOPMENT.md) — dot-source `scripts/dev-shell.ps1` first.
 
-- **Phase 2** (windowed rendering): `cargo run -p pipes-app` opens an
-  actual window and renders the pipes, instead of only logging.
-- **Phase 3/4** (installable, selectable screensaver): download a
-  platform installer from GitHub Releases, run it, then select
-  "neo_win_pipes" from:
-  - Windows: *Settings → Personalization → Lock screen → Screen saver*.
-  - macOS: *System Settings → Screen Saver*.
-  - Linux (via xscreensaver): `xscreensaver-demo`'s hack list.
+## Once Phase 3/4 land
 
-Until then, treat this file's "today" section above as authoritative and
-everything else as forward-looking.
+This section will be filled in as each phase ships: download a platform
+installer from GitHub Releases, run it, then select "neo_win_pipes" from:
+
+- Windows: *Settings → Personalization → Lock screen → Screen saver*.
+- macOS: *System Settings → Screen Saver*.
+- Linux (via xscreensaver): `xscreensaver-demo`'s hack list.
+
+Until then, treat this file's "today" section above as authoritative.
