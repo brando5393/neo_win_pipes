@@ -1,39 +1,42 @@
 //! The screensaver itself. Loads `AppConfig` (shared with `pipes-settings`
-//! — see docs/ARCHITECTURE.md), ticks the pipes-core simulation on a fixed
-//! interval, and renders it fullscreen-window via pipes-render. Run with
-//! `cargo run -p pipes-app -- --seed 1`; press Escape or close the window
-//! to quit.
+//! — see docs/ARCHITECTURE.md) and renders the pipes simulation via
+//! pipes-render. Understands the Windows screensaver contract
+//! (`screensaver_args.rs`): run `neo_win_pipes.scr /s` for fullscreen,
+//! `/c` to open the settings app, `/p <hwnd>` to render a live preview
+//! into an existing window (what Windows does for the thumbnail in
+//! Settings' screensaver dropdown). With no recognized flag (e.g. plain
+//! `cargo run -p pipes-app -- --seed 1`), behaves like `/s` for local
+//! testing. Press Escape or close the window to quit in any mode; in `/s`
+//! mode, any key press, click, or mouse movement also quits, matching how
+//! every real screensaver behaves.
+
+mod screensaver_args;
+#[cfg(windows)]
+mod winsaver;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pipes_core::{Scene, SceneEvent};
 use pipes_render::{build_instances, AppConfig, Renderer};
+use screensaver_args::{parse_screensaver_args, ScreensaverMode};
 use tracing::info;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
+use winit::event::{ElementState, Event, WindowEvent};
 use winit::event_loop::EventLoop;
-use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::WindowBuilder;
+use winit::window::{Fullscreen, WindowBuilder};
 
-struct Args {
-    seed: u64,
-}
-
-fn parse_args() -> Args {
+fn parse_seed(args: &[String]) -> u64 {
     let mut seed = 1u64;
-    let mut args = std::env::args().skip(1);
-    while let Some(flag) = args.next() {
-        match flag.as_str() {
-            "--seed" => {
-                if let Some(v) = args.next() {
-                    seed = v.parse().unwrap_or(seed);
-                }
+    let mut iter = args.iter();
+    while let Some(flag) = iter.next() {
+        if flag == "--seed" {
+            if let Some(v) = iter.next() {
+                seed = v.parse().unwrap_or(seed);
             }
-            other => eprintln!("warning: ignoring unknown argument '{other}'"),
         }
     }
-    Args { seed }
+    seed
 }
 
 fn init_logging() {
@@ -46,50 +49,113 @@ fn init_logging() {
         .init();
 }
 
+/// Locates `pipes-settings` next to this executable (both binaries are
+/// installed side by side — see docs/ROADMAP.md for the packaging plan).
+fn settings_app_path() -> Option<std::path::PathBuf> {
+    let exe_name = if cfg!(windows) {
+        "pipes-settings.exe"
+    } else {
+        "pipes-settings"
+    };
+    std::env::current_exe()
+        .ok()?
+        .parent()
+        .map(|dir| dir.join(exe_name))
+}
+
+fn run_configure() {
+    match settings_app_path() {
+        Some(path) if path.exists() => match std::process::Command::new(&path).spawn() {
+            Ok(_) => info!(path = %path.display(), "launched pipes-settings"),
+            Err(err) => {
+                tracing::error!(?err, path = %path.display(), "failed to launch pipes-settings")
+            }
+        },
+        Some(path) => {
+            tracing::error!(path = %path.display(), "pipes-settings not found next to this executable")
+        }
+        None => tracing::error!("could not determine this executable's directory"),
+    }
+}
+
 fn main() {
     init_logging();
-    let args = parse_args();
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    let mode = parse_screensaver_args(&raw_args);
+    let seed = parse_seed(&raw_args);
+
+    info!(?mode, "neo_win_pipes starting");
+
+    match mode {
+        ScreensaverMode::Configure => return run_configure(),
+        ScreensaverMode::ChangePassword => {
+            info!("change-password invocation not applicable on modern Windows; no-op");
+            return;
+        }
+        ScreensaverMode::Show | ScreensaverMode::Preview(_) => {}
+    }
 
     let mut app_config = AppConfig::load();
     app_config.sanitize();
     info!(config_path = ?AppConfig::config_path(), "loaded AppConfig (or defaults if missing)");
 
     let event_loop = EventLoop::new().expect("failed to create event loop");
-    let window = Arc::new(
-        WindowBuilder::new()
-            .with_title("neo_win_pipes")
-            .with_inner_size(LogicalSize::new(1280.0, 800.0))
-            .build(&event_loop)
-            .expect("failed to create window"),
-    );
+    let mut builder = WindowBuilder::new()
+        .with_title("neo_win_pipes")
+        .with_decorations(false);
+    builder = match mode {
+        ScreensaverMode::Show => builder.with_fullscreen(Some(Fullscreen::Borderless(None))),
+        _ => builder.with_inner_size(LogicalSize::new(320.0, 240.0)),
+    };
+    let window = Arc::new(builder.build(&event_loop).expect("failed to create window"));
+
+    if mode == ScreensaverMode::Show {
+        window.set_cursor_visible(false);
+    }
+    if let ScreensaverMode::Preview(hwnd) = mode {
+        #[cfg(windows)]
+        winsaver::embed_in_preview(&window, hwnd);
+        #[cfg(not(windows))]
+        {
+            let _ = hwnd;
+            tracing::warn!("/p preview embedding is only implemented on Windows");
+        }
+    }
 
     let bounds = (
         app_config.sim.bounds.width,
         app_config.sim.bounds.height,
         app_config.sim.bounds.depth,
     );
-    let mut scene = Scene::new(app_config.sim.clone(), args.seed);
+    let mut scene = Scene::new(app_config.sim.clone(), seed);
 
     let mut renderer = pollster::block_on(Renderer::new(window.clone(), bounds));
 
-    info!(seed = args.seed, "neo_win_pipes window opened");
+    info!(seed, "neo_win_pipes window opened");
     let start = Instant::now();
     let mut last_tick = Instant::now();
     let tick_interval = Duration::from_millis(app_config.tick_interval_ms as u64);
+    let exit_on_any_input = mode == ScreensaverMode::Show;
+    // Window creation itself generates a synthetic CursorMoved (the OS
+    // reporting where the cursor already was) and can replay a stray
+    // KeyboardInput/MouseInput too — without this grace period, /s mode
+    // would exit almost instantly on its own startup events rather than
+    // real user input. Verified by hitting exactly this bug: the window
+    // closed within milliseconds, before a single frame rendered.
+    const INPUT_GRACE: Duration = Duration::from_millis(750);
+    let exit_on_input_now =
+        move |start: Instant| exit_on_any_input && start.elapsed() > INPUT_GRACE;
 
     event_loop
         .run(move |event, elwt| match event {
             Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
                 WindowEvent::CloseRequested => elwt.exit(),
-                WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            physical_key: PhysicalKey::Code(KeyCode::Escape),
-                            state: ElementState::Pressed,
-                            ..
-                        },
+                WindowEvent::KeyboardInput { .. } if exit_on_input_now(start) => elwt.exit(),
+                WindowEvent::MouseInput {
+                    state: ElementState::Pressed,
                     ..
-                } => elwt.exit(),
+                } if exit_on_input_now(start) => elwt.exit(),
+                WindowEvent::CursorMoved { .. } if exit_on_input_now(start) => elwt.exit(),
                 WindowEvent::Resized(size) => renderer.resize(size.width, size.height),
                 WindowEvent::RedrawRequested => {
                     if last_tick.elapsed() >= tick_interval {

@@ -11,19 +11,23 @@ fullscreen demo app. Full context: `docs/RESEARCH.md` (what the original
 did and why), `docs/ARCHITECTURE.md` (how this codebase is structured),
 `docs/ROADMAP.md` (what phase we're in).
 
-**Current phase**: Phase 2.5 — windowed `wgpu` rendering (`pipes-render`,
-shared by `pipes-app` and `pipes-settings`) plus a settings app
-(`pipes-settings`) with a live preview and an egui drawer, backed by a
-persisted `AppConfig`. No native screensaver packaging or installers yet.
-Check `docs/ROADMAP.md` before assuming Phase 3/4 (native
-`.scr`/`.saver`/xscreensaver wrappers, installers) exist.
+**Current phase**: Phase 3, Windows-only so far. `pipes-app` *is* a working
+Windows `.scr` now (`/s`/`/c`/`/p <hwnd>` contract — see
+`screensaver_args.rs`/`winsaver.rs`), on top of Phase 2.5's `pipes-render`
++ `pipes-settings`. **macOS and Linux are not there yet** — Linux has
+tested argument parsing only (`pipes-xscreensaver`), macOS has no code at
+all (design-only in `docs/ROADMAP.md`), both honestly because this project
+has no Mac/Linux machine to build or verify against. Don't assume either
+is installable; check `docs/ROADMAP.md` before claiming otherwise.
 
 ## Commands
 
 ```sh
 cargo build --workspace
-cargo test --workspace              # must pass before any change is done — 36 tests as of Phase 2.5
-cargo run -p pipes-app -- --seed 1  # the screensaver
+cargo test --workspace              # must pass before any change is done — 49 tests as of Phase 3 (Windows)
+cargo run -p pipes-app -- --seed 1  # the screensaver, dev mode (behaves like /s)
+cargo run -p pipes-app -- /s        # exercise the real Windows contract directly
+cargo run -p pipes-app -- /c        # launches pipes-settings, exits
 cargo run -p pipes-settings         # live preview + settings drawer
 RUST_LOG=debug cargo run -p pipes-app -- --seed 1
 ```
@@ -59,6 +63,20 @@ change, not just the initial scaffold:
 6. Prefer property-based test assertions ("never re-enters an occupied
    cell") over one golden output value, except where reproducibility
    itself is the property under test.
+7. **Never ship unverifiable platform-specific code as if it were
+   tested.** If you can't compile or run something on the machine you're
+   working on (e.g. macOS/Linux-specific FFI from a Windows box), split
+   the work: write and test the OS-independent pure-logic part for real
+   (argument parsing, etc. — see `pipes-xscreensaver::args`), and
+   document the untestable native part as an explicit plan/TODO rather
+   than guessed code. Say so plainly rather than implying it's done.
+8. **Actually run what you build before calling it done.** Two real bugs
+   in this repo were only caught by launching the app and looking/testing
+   directly, not by reading the code: `egui::CentralPanel`'s opaque
+   default background hiding the 3D preview, and `/s` mode exiting within
+   milliseconds because window creation itself fires a synthetic
+   `CursorMoved`. Compiling and passing `cargo test` is necessary, not
+   sufficient, for anything involving a window, an event loop, or Win32.
 
 ## Where to look
 

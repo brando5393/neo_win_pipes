@@ -59,9 +59,9 @@ feature branch.
       opaque panel background (a real bug hit and fixed during
       development — `CentralPanel` needs `Frame::none()` when something
       else is drawing underneath it in the same frame).
-- [ ] Wire this UI up as the real Windows `.scr` `/c <HWND>` config dialog
-      once Phase 3's Windows wrapper exists (currently standalone-only, by
-      deliberate choice — see the project's design questions).
+- [x] Wired up as the Windows `.scr`'s `/c` handler (Phase 3): `pipes-app`
+      spawns `pipes-settings` as a child process and exits, rather than
+      reimplementing a config UI inside the `.scr` itself.
 - [ ] Not yet exposed in the drawer: `straight_weight`/`turn_weight` ratio
       and `elbow_probability`, even though both are configurable in
       `SimConfig` and validated as wanted (`pipes.sh -s`) per
@@ -69,12 +69,63 @@ feature branch.
 
 ## Phase 3 — Native screensaver wrappers
 
-- [ ] Windows: `.scr` wrapper (`/s`, `/c`, `/p <HWND>` contract).
-- [ ] macOS: `.saver` bundle (`ScreenSaverView`).
-- [ ] Linux: `xscreensaver` hack executable + `.desktop`/config
-      registration.
-- [ ] Each wrapper gets its own smoke test appropriate to its platform
-      (e.g. "the `.scr` responds to `/p` without crashing").
+Status differs sharply by platform, honestly: only Windows was buildable
+*and* testable on the machine this was developed on. See
+[ARCHITECTURE.md](ARCHITECTURE.md#native-screensaver-wrappers-phase-3)
+for the full writeup per platform.
+
+### Windows — done, tested
+
+- [x] `/s`, `/c`, `/p <HWND>` contract parsed (`screensaver_args.rs`,
+      unit-tested) and acted on in `pipes-app::main`.
+- [x] `/s`: real borderless fullscreen, cursor hidden, exits on any
+      keypress/click/mouse-movement (after a 750ms startup grace period —
+      see ARCHITECTURE.md for the exact bug this fixed).
+- [x] `/c`: spawns `pipes-settings` next to the running executable, exits.
+- [x] `/p <hwnd>`: reparents our window into the given HWND via Win32
+      `SetParent`/`SetWindowLongPtrW`/`SetWindowPos` (`winsaver.rs`).
+- [x] Smoke-tested locally, end to end: `/c` launches `pipes-settings` and
+      exits; `/p <hwnd>` embeds live into a real test window (screenshot-
+      verified); `/s` goes fullscreen and exits correctly on input after
+      the grace period; the built `.exe` renamed to `.scr` behaves
+      identically to the `.exe` when invoked the way Windows itself would
+      (`CreateProcess`, not a shell's file-association-aware launch).
+- [ ] Not yet done: no live resize handling for the `/p` preview thumbnail
+      (assumed fixed-size for the dialog's lifetime — untested whether
+      that assumption holds on every Windows version); no `.msi`
+      installer yet (Phase 4).
+
+### Linux — argument parsing done and tested; rendering not wired up
+
+- [x] `pipes-xscreensaver` crate: parses `-root` / `-window-id <id>`
+      (decimal or hex), unit-tested, builds cross-platform (pure Rust, no
+      X11 deps yet).
+- [ ] Not done: X11 connection, resolving/embedding into the target
+      window via a raw Xlib/XCB handle, wiring into `pipes-render`. Needs
+      `x11rb`/`x11-dl` and can't be compiled or verified without a Linux
+      machine — deliberately left unwritten rather than shipped as
+      unverified guesswork.
+- [ ] The exact xscreensaver hack CLI contract itself
+      (`docs/FEATURE_IDEAS.md`'s research) needs to be checked against a
+      live xscreensaver install/its `screenhack.c` source — treat it as a
+      documented best guess until then.
+
+### macOS — design only, no code yet
+
+- [ ] Not started. A `.saver` is an `NSBundle` implementing
+      `ScreenSaverView` (`objc2` + `objc2-screen-saver`), built as a
+      `cdylib` with `-bundle` and an `Info.plist` — normally an Xcode-
+      toolchain job, not plain `cargo build`. No code was written here:
+      unlike Linux's argument parsing, there's no piece of this that's
+      both real progress and verifiable without a Mac.
+
+### Cross-platform
+
+- [ ] Each wrapper gets its own smoke test appropriate to its platform —
+      done for Windows (see above); blocked on hardware/CI for the other
+      two.
+- [ ] Multi-monitor behavior (span vs. per-display) — not addressed on
+      any platform yet; see "explicitly out of scope for now" below.
 
 ## Phase 4 — Installable packages
 

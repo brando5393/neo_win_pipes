@@ -1,0 +1,14 @@
+[package]
+name = "pipes-xscreensaver"
+description = "Linux xscreensaver 'hack' wrapper. Argument-parsing is real and tested; the actual X11 window embedding + rendering is not wired up yet — see docs/ROADMAP.md."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pipes-xscreensaver"
+path = "src/main.rs"
+
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

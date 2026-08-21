@@ -5,6 +5,7 @@ members = [
     "crates/pipes-render",
     "crates/pipes-app",
     "crates/pipes-settings",
+    "crates/pipes-xscreensaver",
 ]
 
 [workspace.package]

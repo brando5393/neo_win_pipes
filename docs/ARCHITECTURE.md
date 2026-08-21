@@ -142,29 +142,84 @@ thickness, camera, speed; takes effect next frame with no rebuild), plus
 `reset_to_defaults` for the drawer's reset button. `main.rs` acts on
 `Outcome` and autosaves `AppConfig` on any change.
 
-## Native screensaver wrappers (Phase 3, not yet started)
+## Native screensaver wrappers (Phase 3)
 
-Each OS has a different screensaver contract:
+Each OS has a different screensaver contract. Status differs sharply by
+platform because only Windows is buildable *and* testable on the
+development machine this was written on — see
+[DEVELOPMENT.md](DEVELOPMENT.md) for why that matters for what "done"
+can honestly mean per platform right now.
 
-- **Windows**: a renamed `.scr` PE executable, invoked with `/s`
-  (fullscreen), `/c` (config dialog), `/p <HWND>` (preview thumbnail in
-  Settings). Selectable once the `.scr` is placed in `System32` (or
-  registered) — installed via an `.msi`.
-- **macOS**: a `.saver` bundle implementing `ScreenSaverView`
-  (Objective-C/Swift interop from Rust, or a thin native shim that embeds
-  the Rust engine as a static library), installed into
-  `~/Library/Screen Savers` or `/Library/Screen Savers`.
-- **Linux**: no single standard — the common target is an `xscreensaver`
-  "hack" (a plain executable xscreensaver `exec`s into a window ID it
-  hands you), packaged as a `.deb`/AppImage that registers itself in
-  `/usr/share/xscreensaver/config/`.
+### Windows — done, tested
 
-Each wrapper's job is to be a *thin* platform-specific shell — handle the
-OS's window-embedding/preview/config contract, then hand off to the exact
-same `pipes-core` `Scene` and the exact same `pipes-app` rendering code
-Phase 2 builds. This is why the core/app split above isn't optional
-future-proofing — it's the only way three native wrappers stay thin instead
-of forking the whole engine three times.
+`pipes-app` *is* the `.scr`: no separate wrapper crate, because the
+contract is simple enough to live directly in `pipes-app`'s `main.rs` plus
+two small modules:
+
+- **`screensaver_args.rs`** — pure, OS-independent parsing of the four
+  ways Windows invokes a `.scr`: `/s` (fullscreen), `/c[:<hwnd>]`
+  (settings), `/p <hwnd>` (live preview thumbnail), `/a <hwnd>` (legacy
+  change-password, no-op). Unit-tested.
+- **`winsaver.rs`** (`#[cfg(windows)]`) — the one bit of real Win32 FFI:
+  `/p <hwnd>` reparents our own winit window as a child of the HWND
+  Windows gives us (`SetParent` + `SetWindowLongPtrW(GWL_STYLE, WS_CHILD)`
+  + `SetWindowPos` to fit its client rect), so the exact same renderer
+  draws live inside Settings' screensaver dropdown thumbnail.
+- `/c` spawns `pipes-settings` (found next to the running executable) as
+  a child process and returns immediately, rather than reimplementing a
+  config UI inside the `.scr` itself.
+- `/s` mode goes real borderless fullscreen and hides the cursor, and —
+  like every real screensaver — exits on any keypress, click, or mouse
+  movement. A **750ms startup grace period** on that exit-on-input check
+  is load-bearing, not cosmetic: window creation itself generates a
+  synthetic `CursorMoved` (the OS reporting where the cursor already was)
+  and can replay a stray input event, which made the very first
+  implementation exit within milliseconds of opening, before a single
+  frame rendered — caught by actually running it, not just by reading
+  the code.
+
+Packaging is genuinely simple: the built `pipes-app.exe`, renamed to
+`.scr`, *is* the installable artifact (a `.scr` is just a normal PE
+executable Windows treats specially by convention). Verified locally end
+to end: `/c` launching `pipes-settings` and exiting, `/p <hwnd>` embedding
+live into a real test window, `/s` going fullscreen and exiting correctly
+on input after the grace period — including confirming the renamed
+`neo_win_pipes.scr` file itself behaves identically to `pipes-app.exe`
+when invoked directly (as Windows' own screensaver mechanism would).
+
+### Linux — argument parsing done and tested; rendering not wired up
+
+`pipes-xscreensaver` parses the xscreensaver "hack" invocation contract
+(`args.rs`: `-root` or `-window-id <id>`, decimal or hex) with the same
+pure/tested approach as the Windows side. What's **not** implemented:
+opening an X11 connection, resolving/embedding into the target window via
+a raw Xlib/XCB window handle, and wiring that into `pipes-render`. That
+needs `x11rb` (or `x11-dl`) and careful `raw-window-handle` construction —
+deliberately left unwritten rather than shipped as unverified guesswork,
+because this project has no Linux machine to compile or run it against.
+`docs/FEATURE_IDEAS.md`'s research note on xscreensaver's exact CLI
+contract is itself a best-effort reading of third-party ports, not a
+confirmed fact — the single biggest thing to verify first on real Linux.
+
+### macOS — design only, no code yet
+
+A `.saver` is a `NSBundle` implementing `ScreenSaverView`
+(`animateOneFrame`/`drawRect:`), which means Objective-C/Cocoa bridging
+(via `objc2` + `objc2-screen-saver`) and a bundle structure
+(`Info.plist`, principal class, linked as a `cdylib` with `-bundle`)
+that Xcode's toolchain — not plain `cargo build` — normally produces. No
+code was written for this: unlike Linux's argument parsing, there's no
+meaningfully "pure" sub-piece of this that's both real progress and
+testable without a Mac, so writing Rust/ObjC glue here would just be
+unverified guesswork with extra steps. This is intentionally the least
+complete of the three platforms.
+
+Each wrapper's job, on every platform, is to be a *thin* shell — handle
+the OS's window-embedding/preview/config contract, then hand off to the
+exact same `pipes-core` `Scene` and `pipes-render` rendering Phase 2
+built. That's why the core/render split earlier in this document isn't
+optional future-proofing — it's what let the Windows wrapper above ship
+as a couple hundred lines instead of a fork of the whole engine.
 
 ## Logging
 
