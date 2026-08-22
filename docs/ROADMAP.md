@@ -34,15 +34,18 @@ feature branch.
 - [x] Slowly drifting orbit camera around the scene.
 - [x] Manual visual verification: confirmed rendering live —
       [`docs/screenshots/phase2-first-render-seed3.png`](screenshots/phase2-first-render-seed3.png).
-- [ ] True chrome material: current shading is Lambertian + Blinn-Phong
-      specular (looks decent, reads as "shiny," but isn't an environment
-      reflection like the original's chrome). Revisit with an env/cube map
-      if it's worth the complexity.
+- [x] True chrome material: pipes now get a real environment reflection
+      (`sample_environment` in `shader.wgsl` — a procedural analytic sky
+      gradient sampled by the reflection vector, not a texture/cubemap
+      asset) instead of only Lambertian diffuse + a Blinn-Phong specular
+      dot. See `docs/ARCHITECTURE.md#pipes-render` for why a hand-rolled
+      gradient rather than a real cubemap. Confirmed live —
+      [`docs/screenshots/phase2-chrome-material.png`](screenshots/phase2-chrome-material.png).
 - [ ] Elbow joints currently render as a (slightly smaller) sphere rather
       than a smooth torus bend — visually fine, not geometrically accurate
       to "elbow." Torus geometry is a nice-to-have polish item.
-- [x] Checked-in reference screenshot in `docs/screenshots/` (one so far;
-      add more as the renderer evolves for visual regression comparison).
+- [x] Checked-in reference screenshots in `docs/screenshots/` (add more as
+      the renderer evolves for visual regression comparison).
 - [x] Dissolve-on-reset: pipes shrink away over `dissolve_duration_ticks`
       before the scene clears, echoing the original's transition, instead
       of vanishing instantly — toggleable (`dissolve_on_reset`, default

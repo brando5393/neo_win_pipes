@@ -69,7 +69,7 @@ just say "seed 12345, tick 800" instead of a screen recording.
 ## `pipes-render`
 
 A `winit` + `wgpu` rendering/config layer with no `main()` of its own,
-structured in six parts:
+structured in seven parts:
 
 - **`geometry`** — pure procedural mesh generation (unit cylinder, cuboid,
   UV sphere, plus `lathe`/`torus_arc`/`merge_meshes` — the building blocks
@@ -83,15 +83,22 @@ structured in six parts:
   spheres. Also unit-tested (e.g. every cardinal direction must produce a
   finite model matrix — a regression guard on `Quat::from_rotation_arc`'s
   degenerate antiparallel case).
-- **`renderer`** — the actual wgpu setup: instanced pipeline, a
-  Lambertian + Blinn-Phong shader (`shader.wgsl`) for a "shiny metal" look,
-  depth testing, and a camera that slowly orbits the scene per
-  `docs/RESEARCH.md`'s note on the original's optional rotation.
-  `Renderer::render` draws into the whole surface (the screensaver's use
-  case); `Renderer::render_with` additionally takes a viewport rect and an
-  `extra` closure called with the same device/queue/encoder/surface view,
-  which is how `pipes-settings` layers an egui pass into the same frame
-  without `pipes-render` knowing anything about egui.
+- **`renderer`** — the actual wgpu setup: instanced pipeline, a chrome
+  material (`shader.wgsl` — Lambertian diffuse + a procedural
+  environment-reflection term, see below), depth testing, and a camera
+  that slowly orbits the scene per `docs/RESEARCH.md`'s note on the
+  original's optional rotation. `Renderer::render` draws into the whole
+  surface (the screensaver's use case); `Renderer::render_with`
+  additionally takes a viewport rect and an `extra` closure called with
+  the same device/queue/encoder/surface view, which is how
+  `pipes-settings` layers an egui pass into the same frame without
+  `pipes-render` knowing anything about egui; `Renderer::render_tile`
+  (used only by `MonitorMode::Span`, see `pipes-app` below) takes a
+  pre-computed off-axis projection in place of the ordinary symmetric one.
+- **`tile`** — pure off-axis ("asymmetric frustum") projection math for
+  `MonitorMode::Span`, with no `wgpu`/window types anywhere in the module
+  — see "Multi-monitor behavior" under `pipes-app` below for the technique
+  and why it's tested this precisely.
 - **`config`** — `AppConfig`: everything a settings session can tune
   (`SimConfig`, `PipeVisuals`, `CameraConfig`, tick speed), serialized as
   TOML to the OS's standard per-user config directory (via the
@@ -120,8 +127,20 @@ structured in six parts:
 to Vulkan (Linux), Metal (macOS), and DirectX12/Vulkan (Windows) — what
 makes one Rust codebase realistic across all three OSes.
 
-Known simplifications, tracked in [ROADMAP.md](ROADMAP.md): the material
-is specular-only, not a true chrome environment reflection; elbow joints
+The chrome material (`shader.wgsl`'s `sample_environment`) reflects a
+hand-rolled analytic sky gradient sampled by the reflection vector
+(`reflect(-view_dir, normal)`, using the real per-fragment view direction
+toward `camera.eye` — a uniform field added specifically so the fragment
+shader has a real position to compute that from, not the fixed placeholder
+vector the old Blinn-Phong term used) — not a real cubemap texture. That
+keeps it consistent with everything else in this crate being generated
+procedurally (geometry, palettes) rather than adding the first texture/
+image-asset dependency to the project just for this. The environment
+color is tinted toward each pipe's own instance color rather than staying
+a flat grey mirror, so the reflection and the color palette read together
+instead of the environment washing the palette out.
+
+Known simplification, tracked in [ROADMAP.md](ROADMAP.md): elbow joints
 render as a small sphere rather than a smooth torus bend.
 
 ## `pipes-app`
