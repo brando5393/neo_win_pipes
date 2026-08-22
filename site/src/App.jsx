@@ -1,0 +1,128 @@
+import DownloadButtons from './components/DownloadButtons'
+import screensaverHero from './assets/screensaver-hero.png'
+import pipesSettings from './assets/pipes-settings.png'
+
+const REPO = 'brando5393/neo_win_pipes'
+
+const FEATURES = [
+  {
+    title: 'Procedural pipe growth',
+    body: 'Colored pipes grow through a 3D grid one segment at a time, turning at random joints, until the scene fills up and dissolves away to start again.',
+  },
+  {
+    title: 'Themes, one click',
+    body: '"Classic \'96", "Neon", and "Monochrome" bundle a whole look — palette, pipe style, and speed — together. Every setting underneath is still tunable by hand.',
+  },
+  {
+    title: 'The teapot easter egg',
+    body: "A rare, separate roll occasionally renders a procedural Utah teapot at a joint instead of the usual ball or elbow — an honest nod to the original screensaver's own hidden teapot, not a pixel-exact recreation.",
+  },
+  {
+    title: 'Live-preview settings',
+    body: 'Pipes Settings shows the simulation running right next to every slider — pipe count, speed, style, palette, grid size — so you see exactly what you’re about to set as your screensaver.',
+  },
+]
+
+const STATUS = [
+  { platform: 'Windows', state: 'Shipped', detail: 'Real .msi installer, auto-update checker', tone: 'good' },
+  { platform: 'Linux', state: 'Builds, unverified visually', detail: 'Real X11 rendering + .deb/AppImage, compiled clean on CI — not yet watched on a real display', tone: 'mid' },
+  { platform: 'macOS', state: 'Not started', detail: 'No .saver bundle yet', tone: 'none' },
+]
+
+const toneClasses = {
+  good: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  mid: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  none: 'bg-slate-500/15 text-slate-400 border-slate-500/30',
+}
+
+export default function App() {
+  return (
+    <div className="min-h-screen bg-[#0b0d12] text-slate-200">
+      {/* Hero */}
+      <header className="relative overflow-hidden">
+        <img
+          src={screensaverHero}
+          alt="neo_win_pipes screensaver running fullscreen, showing multicolored pipes and two teapot easter eggs"
+          className="absolute inset-0 h-full w-full object-cover opacity-40"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0b0d12]/40 via-[#0b0d12]/70 to-[#0b0d12]" />
+        <div className="relative mx-auto max-w-4xl px-6 py-28 text-center sm:py-36">
+          <h1 className="text-4xl font-bold tracking-tight text-white sm:text-6xl">neo_win_pipes</h1>
+          <p className="mt-4 text-lg text-slate-300 sm:text-xl">
+            A cross-platform recreation of the classic Windows 3D Pipes screensaver, in Rust.
+          </p>
+          <div className="mt-10">
+            <DownloadButtons />
+          </div>
+        </div>
+      </header>
+
+      {/* Platform status */}
+      <section className="mx-auto max-w-4xl px-6 py-10">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {STATUS.map((s) => (
+            <div key={s.platform} className={`rounded-lg border px-4 py-3 ${toneClasses[s.tone]}`}>
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-white">{s.platform}</span>
+                <span className="text-xs font-medium uppercase tracking-wide">{s.state}</span>
+              </div>
+              <p className="mt-1 text-xs opacity-80">{s.detail}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="mx-auto max-w-5xl px-6 py-16">
+        <h2 className="text-center text-2xl font-bold text-white sm:text-3xl">What it does</h2>
+        <div className="mt-10 grid grid-cols-1 gap-8 sm:grid-cols-2">
+          {FEATURES.map((f) => (
+            <div key={f.title}>
+              <h3 className="text-lg font-semibold text-white">{f.title}</h3>
+              <p className="mt-2 text-slate-400">{f.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Screenshot: settings app */}
+      <section className="mx-auto max-w-6xl px-6 py-16">
+        <h2 className="text-center text-2xl font-bold text-white sm:text-3xl">Pipes Settings</h2>
+        <p className="mx-auto mt-3 max-w-2xl text-center text-slate-400">
+          A live 3D preview sits right next to the settings drawer — pipe style and count, speed and camera,
+          color palette, grid size and reset behavior, and the teapot toggle — all changes apply immediately.
+        </p>
+        <div className="mt-10 overflow-hidden rounded-xl border border-white/10 shadow-2xl shadow-black/50">
+          <img src={pipesSettings} alt="Pipes Settings app showing the live 3D preview and settings drawer" className="w-full" />
+        </div>
+      </section>
+
+      {/* Download, repeated at the bottom for anyone who scrolled past the hero */}
+      <section className="mx-auto max-w-4xl px-6 py-16 text-center">
+        <h2 className="text-2xl font-bold text-white sm:text-3xl">Get it</h2>
+        <div className="mt-8">
+          <DownloadButtons />
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-white/10 px-6 py-10 text-center text-sm text-slate-500">
+        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+          <a href={`https://github.com/${REPO}`} className="hover:text-slate-300">
+            GitHub repository
+          </a>
+          <a href={`https://github.com/${REPO}/wiki`} className="hover:text-slate-300">
+            Wiki
+          </a>
+          <a href={`https://github.com/${REPO}/issues/new`} className="hover:text-slate-300">
+            Report an issue
+          </a>
+          <a href={`https://github.com/${REPO}/releases`} className="hover:text-slate-300">
+            All releases
+          </a>
+        </div>
+        <p className="mt-6">MIT licensed. Not affiliated with Microsoft.</p>
+      </footer>
+    </div>
+  )
+}
