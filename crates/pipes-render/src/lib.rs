@@ -9,7 +9,7 @@ pub mod geometry;
 pub mod instance;
 pub mod renderer;
 
-pub use config::{AppConfig, CameraConfig};
+pub use config::{AppConfig, CameraConfig, MonitorMode};
 pub use instance::{build_instances, InstanceRaw, InstanceSets, PipeVisuals};
 pub use renderer::Renderer;
 

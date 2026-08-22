@@ -11,16 +11,28 @@ cargo run -p pipes-app -- --seed 1
 ```
 
 A window opens and pipes start growing immediately — since no
-screensaver flag was recognized, this behaves like `/s` (see below).
-Press **Escape**, click, move the mouse, or close the window to quit
-(there's a short grace period right after startup so opening the window
-itself doesn't immediately count as input).
+screensaver flag was recognized, this behaves like `/s` (see below). If
+more than one display is connected, one independent fullscreen instance
+opens per display by default (see "Multi-monitor" below) — press
+**Escape**, click, move the mouse, or close any window to quit all of
+them (there's a short grace period right after startup so opening the
+window itself doesn't immediately count as input).
 
 ### Options
 
 | Flag     | Default | Meaning |
 |----------|---------|---------|
 | `--seed` | `1`     | RNG seed. Same seed always reproduces the exact same run — see [ARCHITECTURE.md](ARCHITECTURE.md#pipes-core) on determinism. |
+
+### Multi-monitor
+
+With more than one display connected, `/s` mode spawns one independent
+screensaver instance per display by default — each with its own random
+scene, not a mirror of the others. Pipes Settings has a "Multi-monitor"
+toggle to switch to "Primary display only" instead, if you'd rather only
+one screen was active. See
+[ARCHITECTURE.md](ARCHITECTURE.md#multi-monitor-behavior) for how this
+decision was made.
 
 ## Testing the Windows screensaver contract directly
 
@@ -81,8 +93,8 @@ cargo run -p pipes-settings
 ```
 
 Opens "Pipes Settings": a live 3D preview on the left, a settings drawer
-on the right (pipe style & count, speed & camera, color palette, grid size
-& reset threshold). Every change applies to the live preview immediately
+on the right (pipe style & count, speed & camera, multi-monitor behavior,
+color palette, grid size & reset threshold). Every change applies to the live preview immediately
 and autosaves to the shared config file shown at the bottom of the drawer
 — the next time you run `pipes-app`, it picks up the same settings. Click
 **Reset to defaults** to discard all customization.

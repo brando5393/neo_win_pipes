@@ -131,6 +131,60 @@ interval (`AppConfig::tick_interval_ms`, independent of frame rate),
 rebuilds instance buffers every frame, and calls `Renderer::render` with
 `viewport: None` (the whole window).
 
+### Multi-monitor behavior
+
+Flagged for a while in `docs/ROADMAP.md`/`docs/FEATURE_IDEAS.md` as a
+decision every multi-monitor-aware screensaver has to make deliberately —
+research into other screensaver frameworks found this handled
+inconsistently across the whole category, not something to inherit from
+whatever the naive per-OS default does.
+
+`AppConfig::monitor_mode` (`pipes_render::MonitorMode`, a Pipes Settings
+toggle under "Multi-monitor") picks between two behaviors, consulted only
+by `pipes-app`'s `/s` (fullscreen) mode — the live preview in Pipes
+Settings and the `/p` thumbnail always render into one caller-provided
+window regardless of this setting:
+
+- **`AllMonitors`** (default) — `main.rs` calls `event_loop.available_monitors()`
+  before entering the event loop and spawns one borderless fullscreen
+  window per display, each pinned to its monitor via
+  `Fullscreen::Borderless(Some(monitor))`. Every window gets its own
+  `Renderer` (own `wgpu::Instance`/adapter/device/surface — simplest
+  correct thing, not shared) and its own `Scene`, seeded via
+  `seed_for_monitor(base_seed, index)` — `base_seed + index * 104729`, an
+  arbitrary large prime chosen only to spread seeds apart — so displays
+  don't render identical mirrored scenes while a given `--seed` still
+  reproduces the exact same multi-monitor run every time (determinism is
+  load-bearing project-wide). Chosen over one canvas spanning every
+  display because spanning would need per-monitor DPI/bezel-gap
+  compensation this simulation has no way to reason about — independent
+  instances is both simpler and matches how most real multi-monitor
+  screensaver implementations behave.
+- **`PrimaryOnly`** — today's pre-multi-monitor behavior: a single window,
+  `Fullscreen::Borderless(None)` (whatever the OS/windowing system treats
+  as current), for anyone who prefers only one display active.
+
+Both paths funnel into the same `Instance { window, renderer, scene,
+last_tick }` struct and the same event loop, keyed by a `HashMap<WindowId,
+usize>` built once at startup — `WindowEvent`s are dispatched to the
+instance that owns that `window_id`; any window's `CloseRequested` or (in
+`/s` mode, past the 750ms input-grace period) any keyboard/mouse/cursor
+event calls `elwt.exit()`, which tears down every window at once, matching
+how a real screensaver exits fully on any input regardless of which
+monitor received it. Each instance keeps its own `last_tick`, so every
+display's `Scene` steps on the same wall-clock cadence independently
+rather than being coupled to whichever window's redraw event happened to
+arrive first.
+
+**Verification status**: this project's only dev machine has a single
+monitor, so the `AllMonitors` path has been run for real and confirmed via
+its own log output (`multi-monitor: spawning one independent instance per
+display count=1`, then a successful `scene created`/`window(s) opened`)
+and the `PrimaryOnly` path separately (no such log line, single instance) —
+but the actual N>1-displays case is unit-tested (`seed_for_monitor`) and
+code-reviewed only, not watched on real multiple monitors. Same honesty
+convention as the Linux X11 verification gap elsewhere in this doc.
+
 ## `pipes-settings`
 
 "Pipes Settings" — a live preview next to a settings drawer, in one

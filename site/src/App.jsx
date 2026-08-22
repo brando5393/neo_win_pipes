@@ -1,4 +1,4 @@
-import { Workflow, Palette, Sparkles, SlidersHorizontal, Bug, CheckCircle2, AlertTriangle, MinusCircle, GitFork, BookOpen, Tag, Download } from 'lucide-react'
+import { Workflow, Palette, Sparkles, SlidersHorizontal, Bug, Monitor, CheckCircle2, AlertTriangle, MinusCircle, GitFork, BookOpen, Tag, Download } from 'lucide-react'
 import DownloadButtons from './components/DownloadButtons'
 import screensaverHero from './assets/screensaver-hero.png'
 import pipesSettings from './assets/pipes-settings.png'
@@ -30,6 +30,11 @@ const FEATURES = [
     icon: Bug,
     title: 'Report a bug in two clicks',
     body: 'A "Report Issue / Feedback…" button right in the settings drawer opens a pre-filled GitHub issue — category, title, description, and (optionally) recent log output, with your home directory path redacted first.',
+  },
+  {
+    icon: Monitor,
+    title: 'Multi-monitor, done properly',
+    body: 'With more than one display connected, each screen gets its own independent scene by default — not a mirrored copy. A settings toggle switches to primary-display-only if you\'d rather only one screen was active.',
   },
 ]
 

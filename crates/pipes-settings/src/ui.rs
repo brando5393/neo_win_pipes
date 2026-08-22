@@ -6,7 +6,7 @@
 
 use egui::{Context, RichText, Slider};
 use pipes_core::{Color, PipeStyleMode};
-use pipes_render::AppConfig;
+use pipes_render::{AppConfig, MonitorMode};
 
 use crate::update::AvailableUpdate;
 
@@ -178,6 +178,34 @@ pub fn draw(
                         .add(
                             Slider::new(&mut config.camera.orbit_speed, 0.0..=1.0)
                                 .text("Orbit speed"),
+                        )
+                        .changed();
+                });
+            });
+
+            ui.collapsing("Multi-monitor", |ui| {
+                ui.label(
+                    RichText::new(
+                        "Only affects the actual fullscreen screensaver, not this preview.",
+                    )
+                    .weak()
+                    .small(),
+                );
+                ui.horizontal(|ui| {
+                    outcome.other_changed |= ui
+                        .radio_value(
+                            &mut config.monitor_mode,
+                            MonitorMode::AllMonitors,
+                            "All displays (independent instance per screen)",
+                        )
+                        .changed();
+                });
+                ui.horizontal(|ui| {
+                    outcome.other_changed |= ui
+                        .radio_value(
+                            &mut config.monitor_mode,
+                            MonitorMode::PrimaryOnly,
+                            "Primary display only",
                         )
                         .changed();
                 });

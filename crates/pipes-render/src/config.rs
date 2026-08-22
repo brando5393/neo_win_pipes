@@ -32,6 +32,30 @@ impl Default for CameraConfig {
     }
 }
 
+/// How the screensaver behaves when more than one display is connected.
+/// Flagged in `docs/ROADMAP.md`/`docs/FEATURE_IDEAS.md` as a deliberate
+/// decision every multi-monitor-aware screensaver has to make rather than
+/// inheriting whatever the naive per-OS default does — this project's
+/// choice is independent per-display instances, not one canvas stretched
+/// across bezels (which would need per-monitor DPI/gap compensation this
+/// simulation has no way to reason about). Only consulted by `pipes-app`'s
+/// `/s` (fullscreen) mode; the live preview in Pipes Settings and the `/p`
+/// thumbnail always render into a single caller-provided window regardless
+/// of this setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MonitorMode {
+    /// One independent simulation instance per connected display, each
+    /// seeded differently so displays don't render identical mirrored
+    /// scenes.
+    #[default]
+    AllMonitors,
+    /// Only the display the OS/windowing system considers primary
+    /// renders; other displays are left showing whatever was already on
+    /// them. Matches the original screensaver's single-display-only
+    /// behavior, for anyone who prefers that.
+    PrimaryOnly,
+}
+
 /// `#[serde(default)]` (container-level) makes every field individually
 /// forward-compatible with older saved config files — see the matching
 /// note on `pipes_core::SimConfig` for why this matters.
@@ -44,6 +68,7 @@ pub struct AppConfig {
     /// How often the simulation advances by one tick, independent of frame
     /// rate. Lower = faster-growing pipes.
     pub tick_interval_ms: u32,
+    pub monitor_mode: MonitorMode,
 }
 
 impl Default for AppConfig {
@@ -53,6 +78,7 @@ impl Default for AppConfig {
             visuals: PipeVisuals::default(),
             camera: CameraConfig::default(),
             tick_interval_ms: 120,
+            monitor_mode: MonitorMode::default(),
         }
     }
 }
@@ -223,6 +249,17 @@ orbit_speed = 0.15
             "missing palette (also absent from this fixture) must fall back too"
         );
 
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn old_config_missing_monitor_mode_defaults_to_all_monitors() {
+        // Same forward-compat concern as the dissolve fields above, for the
+        // field added alongside multi-monitor support.
+        let path = test_path("old_format_no_monitor_mode");
+        std::fs::write(&path, "tick_interval_ms = 90\n").unwrap();
+        let config = AppConfig::load_from(&path);
+        assert_eq!(config.monitor_mode, MonitorMode::AllMonitors);
         let _ = std::fs::remove_file(&path);
     }
 

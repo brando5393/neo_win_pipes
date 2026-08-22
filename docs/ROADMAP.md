@@ -217,8 +217,20 @@ for the full writeup per platform.
       and is CI-verified to compile/lint clean, but still has no real
       display-server smoke test (no Linux machine with an X server/GPU);
       macOS is still blocked on the `.saver` code not existing at all.
-- [ ] Multi-monitor behavior (span vs. per-display) — not addressed on
-      any platform yet; see "explicitly out of scope for now" below.
+- [x] Multi-monitor behavior — decided in favor of independent per-display
+      instances (`MonitorMode::AllMonitors`, the default) over one canvas
+      spanning all displays, since spanning would need per-monitor
+      DPI/bezel-gap compensation this simulation has no way to reason
+      about; `MonitorMode::PrimaryOnly` is available for anyone who wants
+      the old single-display-only behavior. `pipes-app`'s `/s` mode now
+      enumerates `winit`'s `available_monitors()` and spawns one window +
+      renderer + `Scene` per display, each with a distinct-but-deterministic
+      seed (`seed_for_monitor`, unit-tested) so displays don't mirror each
+      other. Cross-platform in principle (the code is behind no
+      `cfg(windows)`), but only physically verified on this project's
+      single-monitor dev machine so far — the N>1 case is unit-tested
+      (seed derivation) and code-reviewed, not yet watched on real
+      multiple displays. See `docs/ARCHITECTURE.md#multi-monitor-behavior`.
 
 ## Phase 4 — Installable packages
 
@@ -376,9 +388,6 @@ for the full writeup per platform.
 
 - Non-Rust language bindings.
 - Mobile/tablet screensaver equivalents.
-- Multi-monitor-specific configuration (span vs. per-display) — flagged as
-  a real modern-platform expectation in `docs/FEATURE_IDEAS.md`, deferred
-  to Phase 3 since it's tied up with each OS's screensaver contract.
 
 Revisit this list if a phase reveals it was wrong — this is a plan, not a
 contract.

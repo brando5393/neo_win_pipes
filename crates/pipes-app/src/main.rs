@@ -22,17 +22,19 @@ mod screensaver_args;
 #[cfg(windows)]
 mod winsaver;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pipes_core::{Scene, SceneEvent};
-use pipes_render::{build_instances, AppConfig, Renderer};
+use pipes_render::{build_instances, AppConfig, MonitorMode, Renderer};
 use screensaver_args::{parse_screensaver_args, ScreensaverMode};
 use tracing::info;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Event, WindowEvent};
 use winit::event_loop::EventLoop;
-use winit::window::{Fullscreen, WindowBuilder};
+use winit::monitor::MonitorHandle;
+use winit::window::{Fullscreen, Window, WindowBuilder, WindowId};
 
 // winit's cross-platform `with_window_icon` only sets the small (title
 // bar) icon on Windows — the taskbar button uses a separate "big" icon
@@ -41,6 +43,52 @@ use winit::window::{Fullscreen, WindowBuilder};
 // default icon even though the title bar shows the right one.
 #[cfg(windows)]
 use winit::platform::windows::WindowBuilderExtWindows;
+
+/// Derives a distinct-but-deterministic RNG seed for the `index`-th
+/// monitor's independent instance, so multiple displays don't render
+/// identical mirrored scenes — while a given `--seed` still reproduces the
+/// exact same multi-monitor run every time (determinism is load-bearing
+/// project-wide, see `docs/ARCHITECTURE.md`). The multiplier is an
+/// arbitrary large prime purely to spread indices apart in the seed space;
+/// it carries no other significance.
+fn seed_for_monitor(base_seed: u64, index: usize) -> u64 {
+    base_seed.wrapping_add(index as u64 * 104_729)
+}
+
+/// Builds one borderless window: fullscreen on `monitor` for
+/// `ScreensaverMode::Show` (`None` lets the OS pick, used for the
+/// single-instance fallback path), or a small fixed-size window otherwise
+/// (`/c` preview thumbnail, or local dev testing).
+fn build_window(
+    event_loop: &EventLoop<()>,
+    mode: ScreensaverMode,
+    monitor: Option<MonitorHandle>,
+) -> Arc<Window> {
+    let mut builder = WindowBuilder::new()
+        .with_title("neo_win_pipes")
+        .with_window_icon(pipes_render::app_icon::window_icon())
+        .with_decorations(false);
+    #[cfg(windows)]
+    {
+        builder = builder.with_taskbar_icon(pipes_render::app_icon::window_icon());
+    }
+    builder = match mode {
+        ScreensaverMode::Show => builder.with_fullscreen(Some(Fullscreen::Borderless(monitor))),
+        _ => builder.with_inner_size(LogicalSize::new(320.0, 240.0)),
+    };
+    Arc::new(builder.build(event_loop).expect("failed to create window"))
+}
+
+/// One monitor's worth of screensaver state: its own window, GPU renderer,
+/// and simulation — see the module doc on `pipes_render::MonitorMode` for
+/// why each display gets an independent instance rather than one canvas
+/// spanning all of them.
+struct Instance {
+    window: Arc<Window>,
+    renderer: Renderer,
+    scene: Scene,
+    last_tick: Instant,
+}
 
 fn parse_seed(args: &[String]) -> u64 {
     let mut seed = 1u64;
@@ -139,50 +187,86 @@ fn main() {
     info!(config_path = ?AppConfig::config_path(), "loaded AppConfig (or defaults if missing)");
 
     let event_loop = EventLoop::new().expect("failed to create event loop");
-    let mut builder = WindowBuilder::new()
-        .with_title("neo_win_pipes")
-        .with_window_icon(pipes_render::app_icon::window_icon())
-        .with_decorations(false);
-    #[cfg(windows)]
-    {
-        builder = builder.with_taskbar_icon(pipes_render::app_icon::window_icon());
-    }
-    builder = match mode {
-        ScreensaverMode::Show => builder.with_fullscreen(Some(Fullscreen::Borderless(None))),
-        _ => builder.with_inner_size(LogicalSize::new(320.0, 240.0)),
-    };
-    let window = Arc::new(builder.build(&event_loop).expect("failed to create window"));
-
-    if mode == ScreensaverMode::Show {
-        window.set_cursor_visible(false);
-    }
-    if let ScreensaverMode::Preview(hwnd) = mode {
-        #[cfg(windows)]
-        winsaver::embed_in_preview(&window, hwnd);
-        #[cfg(not(windows))]
-        {
-            let _ = hwnd;
-            tracing::warn!("/p preview embedding is only implemented on Windows");
-        }
-    }
-
     let bounds = (
         app_config.sim.bounds.width,
         app_config.sim.bounds.height,
         app_config.sim.bounds.depth,
     );
-    let mut scene = Scene::new(app_config.sim.clone(), seed);
 
-    let window_size = window.inner_size();
-    let mut renderer = pollster::block_on(Renderer::new(
-        window.clone(),
-        (window_size.width, window_size.height),
-        bounds,
-    ));
+    // Multi-monitor only ever applies to the real fullscreen screensaver —
+    // the /c settings-launch path already returned above, and /p's preview
+    // thumbnail and configure-mode both render into one caller-provided or
+    // small dev window regardless of how many displays exist.
+    let monitors: Vec<MonitorHandle> =
+        if mode == ScreensaverMode::Show && app_config.monitor_mode == MonitorMode::AllMonitors {
+            event_loop.available_monitors().collect()
+        } else {
+            Vec::new()
+        };
 
-    info!(seed, "neo_win_pipes window opened");
+    let mut instances = Vec::new();
+    if monitors.is_empty() {
+        let window = build_window(&event_loop, mode, None);
+        if mode == ScreensaverMode::Show {
+            window.set_cursor_visible(false);
+        }
+        if let ScreensaverMode::Preview(hwnd) = mode {
+            #[cfg(windows)]
+            winsaver::embed_in_preview(&window, hwnd);
+            #[cfg(not(windows))]
+            {
+                let _ = hwnd;
+                tracing::warn!("/p preview embedding is only implemented on Windows");
+            }
+        }
+        let window_size = window.inner_size();
+        let renderer = pollster::block_on(Renderer::new(
+            window.clone(),
+            (window_size.width, window_size.height),
+            bounds,
+        ));
+        let scene = Scene::new(app_config.sim.clone(), seed);
+        instances.push(Instance {
+            window,
+            renderer,
+            scene,
+            last_tick: Instant::now(),
+        });
+    } else {
+        info!(
+            count = monitors.len(),
+            "multi-monitor: spawning one independent instance per display"
+        );
+        for (i, monitor) in monitors.into_iter().enumerate() {
+            let window = build_window(&event_loop, mode, Some(monitor));
+            window.set_cursor_visible(false);
+            let window_size = window.inner_size();
+            let renderer = pollster::block_on(Renderer::new(
+                window.clone(),
+                (window_size.width, window_size.height),
+                bounds,
+            ));
+            let scene = Scene::new(app_config.sim.clone(), seed_for_monitor(seed, i));
+            instances.push(Instance {
+                window,
+                renderer,
+                scene,
+                last_tick: Instant::now(),
+            });
+        }
+    }
+    let window_ids: HashMap<WindowId, usize> = instances
+        .iter()
+        .enumerate()
+        .map(|(i, inst)| (inst.window.id(), i))
+        .collect();
+
+    info!(
+        seed,
+        instances = instances.len(),
+        "neo_win_pipes window(s) opened"
+    );
     let start = Instant::now();
-    let mut last_tick = Instant::now();
     let tick_interval = Duration::from_millis(app_config.tick_interval_ms as u64);
     let exit_on_any_input = mode == ScreensaverMode::Show;
     // Window creation itself generates a synthetic CursorMoved (the OS
@@ -197,45 +281,87 @@ fn main() {
 
     event_loop
         .run(move |event, elwt| match event {
-            Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
-                WindowEvent::CloseRequested => elwt.exit(),
-                WindowEvent::KeyboardInput { .. } if exit_on_input_now(start) => elwt.exit(),
-                WindowEvent::MouseInput {
-                    state: ElementState::Pressed,
-                    ..
-                } if exit_on_input_now(start) => elwt.exit(),
-                WindowEvent::CursorMoved { .. } if exit_on_input_now(start) => elwt.exit(),
-                WindowEvent::Resized(size) => renderer.resize(size.width, size.height),
-                WindowEvent::RedrawRequested => {
-                    if last_tick.elapsed() >= tick_interval {
-                        last_tick = Instant::now();
-                        for event in scene.step() {
-                            if event == SceneEvent::SceneReset {
-                                info!("scene reset — restarting");
+            Event::WindowEvent { event, window_id } => {
+                let Some(&idx) = window_ids.get(&window_id) else {
+                    return;
+                };
+                let inst = &mut instances[idx];
+                match event {
+                    WindowEvent::CloseRequested => elwt.exit(),
+                    WindowEvent::KeyboardInput { .. } if exit_on_input_now(start) => elwt.exit(),
+                    WindowEvent::MouseInput {
+                        state: ElementState::Pressed,
+                        ..
+                    } if exit_on_input_now(start) => elwt.exit(),
+                    WindowEvent::CursorMoved { .. } if exit_on_input_now(start) => elwt.exit(),
+                    WindowEvent::Resized(size) => inst.renderer.resize(size.width, size.height),
+                    WindowEvent::RedrawRequested => {
+                        if inst.last_tick.elapsed() >= tick_interval {
+                            inst.last_tick = Instant::now();
+                            for event in inst.scene.step() {
+                                if event == SceneEvent::SceneReset {
+                                    info!("scene reset — restarting");
+                                }
                             }
                         }
-                    }
 
-                    let sets = build_instances(&scene, &app_config.visuals);
-                    let orbit_seconds = start.elapsed().as_secs_f32();
-                    if let Err(err) =
-                        renderer.render(orbit_seconds, &app_config.camera, None, &sets)
-                    {
-                        match err {
-                            wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
-                                let size = window.inner_size();
-                                renderer.resize(size.width, size.height);
+                        let sets = build_instances(&inst.scene, &app_config.visuals);
+                        let orbit_seconds = start.elapsed().as_secs_f32();
+                        if let Err(err) =
+                            inst.renderer
+                                .render(orbit_seconds, &app_config.camera, None, &sets)
+                        {
+                            match err {
+                                wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+                                    let size = inst.window.inner_size();
+                                    inst.renderer.resize(size.width, size.height);
+                                }
+                                wgpu::SurfaceError::OutOfMemory => elwt.exit(),
+                                wgpu::SurfaceError::Timeout => {}
                             }
-                            wgpu::SurfaceError::OutOfMemory => elwt.exit(),
-                            wgpu::SurfaceError::Timeout => {}
                         }
+                        inst.window.request_redraw();
                     }
-                    window.request_redraw();
+                    _ => {}
                 }
-                _ => {}
-            },
-            Event::AboutToWait => window.request_redraw(),
+            }
+            Event::AboutToWait => {
+                for inst in &instances {
+                    inst.window.request_redraw();
+                }
+            }
             _ => {}
         })
         .expect("event loop error");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seed_for_monitor_index_zero_is_the_base_seed() {
+        // The first monitor must reproduce today's single-monitor behavior
+        // exactly, so existing `--seed` reproductions don't change.
+        assert_eq!(seed_for_monitor(1, 0), 1);
+        assert_eq!(seed_for_monitor(9999, 0), 9999);
+    }
+
+    #[test]
+    fn seed_for_monitor_gives_each_display_a_distinct_seed() {
+        let seeds: Vec<u64> = (0..4).map(|i| seed_for_monitor(1, i)).collect();
+        let mut unique = seeds.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(
+            unique.len(),
+            seeds.len(),
+            "every monitor index must get a distinct seed"
+        );
+    }
+
+    #[test]
+    fn seed_for_monitor_is_deterministic() {
+        assert_eq!(seed_for_monitor(42, 2), seed_for_monitor(42, 2));
+    }
 }

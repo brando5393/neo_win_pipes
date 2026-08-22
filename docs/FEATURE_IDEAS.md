@@ -28,7 +28,7 @@ for, not just what seemed neat.
 
 ## Modern-platform expectations (not present in the original, but expected of anything shipping today)
 
-- **Multi-monitor behavior that's actually configurable** — one screensaver spanning all displays vs. an independent instance per display. Long-standing, still-unresolved pain point across the whole screensaver category (see Actual Multiple Monitors', DisplayFusion's, and Microsoft Q&A's multi-monitor screensaver features/threads) — native OS screensaver APIs have historically handled this inconsistently. Worth deciding deliberately for Phase 3 rather than inheriting whatever the naive per-OS default does.
+- ~~**Multi-monitor behavior that's actually configurable**~~ — **shipped**: `MonitorMode::AllMonitors` (default, one independent instance per display) vs. `MonitorMode::PrimaryOnly`, a Pipes Settings toggle under "Multi-monitor". Decided in favor of independent per-display instances over one spanning canvas — see `docs/ARCHITECTURE.md#multi-monitor-behavior` for the reasoning and `docs/ROADMAP.md` for the verification caveat (unit-tested and code-reviewed, not yet watched on real multiple displays).
 - **High-DPI correctness** — not found as an explicit complaint in research, but implied by "modern systems" in the project's original goal; worth a deliberate check once real displays are being tested against, not just assumed.
 
 ## Ideas not yet validated by outside sources (ours, lower confidence)
@@ -37,7 +37,7 @@ for, not just what seemed neat.
 - A pause/resume hotkey in the live preview (distinct from the runtime keyboard shortcuts `pipes.sh` has for adjusting parameters). Still open — not picked when the rest of this batch was chosen.
 - ~~Config export/import~~ — **shipped**: "Export…"/"Import…" buttons using a native file dialog (`rfd`).
 - ~~The classic screensaver's teapot easter egg~~ — **shipped**: a rare, separate roll (`JointKind::Teapot`, `teapot_easter_egg_enabled` + `teapot_probability`) renders a procedural teapot mesh (`pipes_render::geometry::teapot()` — lathed body/spout, torus-arc handle, sphere knob; not the exact historical Utah teapot control-point dataset, an honest approximation) at a joint instead of the normal ball/elbow.
-- Multi-monitor configurable behavior (promoted up from "Modern-platform expectations" below) — not started.
+- ~~Multi-monitor configurable behavior (promoted up from "Modern-platform expectations" below)~~ — **shipped**, see above.
 
 ## Where this feeds in
 
