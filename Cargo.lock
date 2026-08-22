@@ -1990,6 +1990,7 @@ dependencies = [
  "tracing-subscriber",
  "ureq",
  "wgpu",
+ "windows-sys 0.59.0",
  "winit",
  "winres",
  "zbus",

@@ -42,5 +42,18 @@ rfd = { version = "0.14", default-features = false, features = ["xdg-portal", "a
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "4", default-features = false, features = ["async-io"] }
 
+[target.'cfg(windows)'.dependencies]
+# Used to open URLs via ShellExecuteW instead of `cmd /c start` - the
+# latter re-parses its command tail through cmd.exe's own shell grammar,
+# which treats `&` as a command separator and silently truncates any URL
+# containing one (every feedback-issue URL does, at its first query
+# param). Found by actually clicking through a generated issue link, not
+# by reading the code.
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
