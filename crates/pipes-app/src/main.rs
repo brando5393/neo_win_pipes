@@ -34,6 +34,14 @@ use winit::event::{ElementState, Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::{Fullscreen, WindowBuilder};
 
+// winit's cross-platform `with_window_icon` only sets the small (title
+// bar) icon on Windows — the taskbar button uses a separate "big" icon
+// that has no cross-platform builder method, only this Windows-specific
+// extension trait. Without it, the taskbar button shows Windows' generic
+// default icon even though the title bar shows the right one.
+#[cfg(windows)]
+use winit::platform::windows::WindowBuilderExtWindows;
+
 fn parse_seed(args: &[String]) -> u64 {
     let mut seed = 1u64;
     let mut iter = args.iter();
@@ -133,7 +141,12 @@ fn main() {
     let event_loop = EventLoop::new().expect("failed to create event loop");
     let mut builder = WindowBuilder::new()
         .with_title("neo_win_pipes")
+        .with_window_icon(pipes_render::app_icon::window_icon())
         .with_decorations(false);
+    #[cfg(windows)]
+    {
+        builder = builder.with_taskbar_icon(pipes_render::app_icon::window_icon());
+    }
     builder = match mode {
         ScreensaverMode::Show => builder.with_fullscreen(Some(Fullscreen::Borderless(None))),
         _ => builder.with_inner_size(LogicalSize::new(320.0, 240.0)),

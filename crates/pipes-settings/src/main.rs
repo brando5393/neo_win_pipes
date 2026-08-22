@@ -24,6 +24,14 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 
+// winit's cross-platform `with_window_icon` only sets the small (title
+// bar) icon on Windows — the taskbar button uses a separate "big" icon
+// that has no cross-platform builder method, only this Windows-specific
+// extension trait. Without it, the taskbar button shows Windows' generic
+// default icon even though the title bar shows the right one.
+#[cfg(windows)]
+use winit::platform::windows::WindowBuilderExtWindows;
+
 mod ui;
 mod update;
 
@@ -65,13 +73,15 @@ fn main() {
     info!(config_path = ?AppConfig::config_path(), "loaded AppConfig (or defaults if missing)");
 
     let event_loop = EventLoop::new().expect("failed to create event loop");
-    let window = Arc::new(
-        WindowBuilder::new()
-            .with_title("Pipes Settings")
-            .with_inner_size(LogicalSize::new(1200.0, 760.0))
-            .build(&event_loop)
-            .expect("failed to create window"),
-    );
+    let mut builder = WindowBuilder::new()
+        .with_title("Pipes Settings")
+        .with_window_icon(pipes_render::app_icon::window_icon())
+        .with_inner_size(LogicalSize::new(1200.0, 760.0));
+    #[cfg(windows)]
+    {
+        builder = builder.with_taskbar_icon(pipes_render::app_icon::window_icon());
+    }
+    let window = Arc::new(builder.build(&event_loop).expect("failed to create window"));
 
     let bounds = (
         app_config.sim.bounds.width,

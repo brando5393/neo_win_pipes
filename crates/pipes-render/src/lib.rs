@@ -2,6 +2,7 @@
 //! screensaver) and `pipes-settings` (the settings app with a live
 //! preview). See `docs/ARCHITECTURE.md` for how these fit together.
 
+pub mod app_icon;
 pub mod config;
 pub mod diagnostics;
 pub mod geometry;
