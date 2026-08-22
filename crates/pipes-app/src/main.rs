@@ -173,7 +173,12 @@ fn main() {
     );
     let mut scene = Scene::new(app_config.sim.clone(), seed);
 
-    let mut renderer = pollster::block_on(Renderer::new(window.clone(), bounds));
+    let window_size = window.inner_size();
+    let mut renderer = pollster::block_on(Renderer::new(
+        window.clone(),
+        (window_size.width, window_size.height),
+        bounds,
+    ));
 
     info!(seed, "neo_win_pipes window opened");
     let start = Instant::now();

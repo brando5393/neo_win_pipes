@@ -1,0 +1,15 @@
+Package: pipes-xscreensaver
+Version: __VERSION__
+Section: x11
+Priority: optional
+Architecture: amd64
+Depends: xscreensaver, libx11-6, libvulkan1, libwayland-client0, libxkbcommon0
+Maintainer: Brandon Williams <noreply@github.com>
+Homepage: https://github.com/brando5393/neo_win_pipes
+Description: 3D Pipes screensaver (xscreensaver hack) + settings app
+ A cross-platform recreation of the classic Windows 3D Pipes screensaver.
+ Installs an xscreensaver "hack" (select "Neo Pipes" in xscreensaver-demo)
+ and a standalone "Pipes Settings" app (live preview + settings drawer)
+ for configuring pipe count, speed, style, and color palette - the exact
+ same shared config file and simulation/rendering code as the Windows
+ version.

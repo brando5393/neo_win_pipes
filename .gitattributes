@@ -1,0 +1,10 @@
+# Shell scripts must keep LF endings regardless of the checkout OS - a
+# CRLF shebang line breaks bash on Linux ("bad interpreter" or
+# `$'\r': command not found`), and this repo is developed on Windows
+# (which git configures to convert LF -> CRLF on checkout by default),
+# but these scripts run for real on Linux CI runners.
+*.sh text eol=lf
+# AppImage's entry point - a shell script with no .sh extension by its
+# own convention, so it needs its own rule rather than relying on the
+# one above.
+installer/linux/AppDir/AppRun text eol=lf

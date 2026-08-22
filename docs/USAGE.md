@@ -111,17 +111,61 @@ updates" rather than a fully silent one.
 If `cargo run` fails to link, see the toolchain caveat in
 [DEVELOPMENT.md](DEVELOPMENT.md) — dot-source `scripts/dev-shell.ps1` first.
 
-## macOS / Linux
+## Linux
 
-Not installable screensavers yet — see
-[ROADMAP.md](ROADMAP.md#phase-3--native-screensaver-wrappers) for exactly
-what's done (Linux: argument parsing) versus not started (macOS). Once
-they land, the end state is the same shape as Windows above: select
-"neo_win_pipes" from *System Settings → Screen Saver* (macOS) or
-`xscreensaver-demo`'s hack list (Linux).
+> **Status**: real rendering code and a real `.deb`/AppImage exist and
+> build/lint clean on actual `ubuntu-latest` CI — but nobody has
+> installed either on a real machine and watched it render. See
+> [ROADMAP.md](ROADMAP.md#phase-3--native-screensaver-wrappers) for the
+> full honest breakdown of what's compiled-and-verified versus what's
+> still unconfirmed.
 
-## Once macOS/Linux installers land
+Download `pipes-xscreensaver_<version>_amd64.deb` from the
+[latest GitHub Release](https://github.com/brando5393/neo_win_pipes/releases/latest):
 
-Same shape as Windows above: download a `.pkg`/`.deb` (or AppImage) from
-GitHub Releases and run it — no manual file copying. Not there yet; see
-[ROADMAP.md](ROADMAP.md).
+```sh
+sudo apt install ./pipes-xscreensaver_<version>_amd64.deb
+```
+
+That installs the hack (into `/usr/libexec/xscreensaver/`, alongside its
+config XML so `xscreensaver-demo` can find it) and `pipes-settings` (as a
+regular app, with a Start-Menu-equivalent launcher entry). Then:
+
+1. Open `xscreensaver-demo` (or your desktop environment's screen saver
+   settings, if it wraps xscreensaver) and select **Neo Pipes** from the
+   hack list — named that way, not "Pipes", since the real xscreensaver
+   package already ships its own, different "Pipes" hack.
+2. Open **Pipes Settings** from your application menu for the same live
+   preview + settings drawer Windows has — same shared config file, same
+   simulation/rendering code.
+3. `sudo apt remove pipes-xscreensaver` to uninstall.
+
+**Prefer a portable option, or not on a Debian-based distro?** Download
+`PipesSettings-<version>-x86_64.AppImage`, `chmod +x` it, and run it — no
+install, no root. This is `pipes-settings` only, not the screensaver hack
+itself: an AppImage is an isolated bundle by design, and
+`xscreensaver`'s driver discovers hacks by finding real files in real
+system locations, which a portable bundle can't provide (the same reason
+a portable `.zip` can't register itself in Windows' Screen Saver
+dropdown without a real installer) — the `.deb` above is still the only
+path to actually installing the screensaver.
+
+### Testing the hack directly, without a full xscreensaver setup
+
+```sh
+pipes-xscreensaver -root       # draws on the root window
+pipes-xscreensaver             # same thing (root is the default)
+```
+
+`-window-id <id>` (decimal or hex) is what `xscreensaver`'s driver
+actually passes when running it for real — pass a specific X11 window ID
+to test that path manually.
+
+## macOS
+
+Not installable yet, and no code exists at all — not even argument
+parsing, unlike Linux. See
+[ROADMAP.md](ROADMAP.md#macos--not-started) for why (no way to compile
+Objective-C/Swift or link a Mach-O binary from this project's Windows dev
+machine). Once it exists, the end state is the same shape as the others:
+select "Neo Pipes" from *System Settings → Screen Saver*.

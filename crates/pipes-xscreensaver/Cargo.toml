@@ -1,6 +1,6 @@
 [package]
 name = "pipes-xscreensaver"
-description = "Linux xscreensaver 'hack' wrapper. Argument-parsing is real and tested; the actual X11 window embedding + rendering is not wired up yet — see docs/ROADMAP.md."
+description = "Linux xscreensaver 'hack' wrapper: renders into whatever X11 window xscreensaver's driver hands it (or the root window for standalone testing), reusing the same pipes-core/pipes-render pipeline as pipes-app."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,3 +12,15 @@ path = "src/main.rs"
 [dependencies]
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+pipes-core = { path = "../pipes-core" }
+pipes-render = { path = "../pipes-render" }
+pollster = "0.3"
+wgpu = "0.19"
+
+# The real X11 integration only builds (and only makes sense) on Linux —
+# this crate still needs to compile cleanly on windows-latest/macos-latest
+# too, since CI's `cargo build --workspace` runs on all three, so the
+# actual rendering path is gated to Linux only (see main.rs); other
+# platforms get an honest "not supported here" stub instead.
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl = "2"

@@ -12,3 +12,9 @@ pub mod renderer;
 pub use config::{AppConfig, CameraConfig};
 pub use instance::{build_instances, InstanceRaw, InstanceSets, PipeVisuals};
 pub use renderer::Renderer;
+
+/// Re-exported so callers building a non-winit window target (e.g.
+/// `pipes-xscreensaver`'s raw X11 handle) can implement the traits
+/// `Renderer::new` needs without adding their own direct `wgpu` (or
+/// `raw-window-handle`) dependency just for these types.
+pub use wgpu::rwh;

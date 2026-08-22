@@ -1,0 +1,11 @@
+#!/bin/sh
+# AppImage entry point. Only wraps pipes-settings - the xscreensaver hack
+# (pipes-xscreensaver) fundamentally cannot be an AppImage: xscreensaver's
+# driver discovers hacks via files it expects to find in real system
+# locations (/usr/libexec/xscreensaver/, /usr/share/xscreensaver/config/),
+# which an isolated, non-installed AppImage bundle cannot provide by
+# design - the exact same reason a portable .zip can't register itself in
+# Windows' Screen Saver dropdown without a real installer. See
+# installer/linux/build-deb.sh (and docs/ROADMAP.md) for that part.
+HERE="$(dirname "$(readlink -f "${0}")")"
+exec "$HERE/usr/bin/pipes-settings" "$@"

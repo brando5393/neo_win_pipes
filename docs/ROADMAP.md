@@ -147,28 +147,51 @@ for the full writeup per platform.
       that assumption holds on every Windows version); no `.msi`
       installer yet (Phase 4).
 
-### Linux — argument parsing done and tested; rendering not wired up
+### Linux — real rendering code, real packages, one honest gap left
 
 - [x] `pipes-xscreensaver` crate: parses `-root` / `-window-id <id>`
       (decimal or hex), unit-tested.
-- [x] As of the first real CI run, this is no longer just "should build
-      cross-platform" — GitHub Actions' `ubuntu-latest` runner actually
-      compiled and passed tests for the *whole* workspace (including
-      `winit`/`wgpu`-based `pipes-render`/`pipes-app`/`pipes-settings`,
-      not just this crate) in 2m6s, confirming the blind guess at which
-      apt packages `winit`/`wgpu` need (`libx11-dev`, `libxkbcommon-dev`,
-      etc.) was sufficient. That's a real, verified data point now, not
-      an assumption — though it's compilation + unit tests, not a live
-      screensaver running on a real X server.
-- [ ] Not done: X11 connection, resolving/embedding into the target
-      window via a raw Xlib/XCB handle, wiring into `pipes-render`. Needs
-      `x11rb`/`x11-dl`, and CI can compile it but can't smoke-test actual
-      window embedding without a display server — deliberately left
-      unwritten rather than shipped as unverified guesswork.
-- [ ] The exact xscreensaver hack CLI contract itself
-      (`docs/FEATURE_IDEAS.md`'s research) needs to be checked against a
-      live xscreensaver install/its `screenhack.c` source — treat it as a
-      documented best guess until then.
+- [x] `pipes_render::Renderer::new` generalized from a concrete
+      `Arc<winit::window::Window>` parameter to generic over anything
+      implementing the raw-window-handle traits `wgpu` needs — so this
+      one shared renderer works for a real winit window (`pipes-app`/
+      `pipes-settings`) *and* a raw X11 window this crate doesn't own.
+- [x] `x11_target.rs`: opens the X display via `x11-dl` (dynamic `dlopen`
+      at runtime, not link-time linking — this is why it costs nothing to
+      compile on Windows/macOS CI too), resolves the root window or a
+      specific `-window-id`, selects for `StructureNotifyMask` so resizes
+      are actually observed, and implements `HasWindowHandle`/
+      `HasDisplayHandle` by hand for the `RawWindowHandle::Xlib`/
+      `RawDisplayHandle::Xlib` variants.
+- [x] `main.rs`'s Linux branch runs a real render loop: steps the
+      `Scene` on the configured tick interval, polls for X11
+      `ConfigureNotify` events each frame to call `renderer.resize`, and
+      calls `renderer.render` — the same `pipes-core`/`pipes-render`
+      pipeline `pipes-app` uses on Windows, not a reimplementation.
+- [x] Verified by actually compiling and clippy-checking (`-D warnings`)
+      against `x86_64-unknown-linux-gnu` from this project's Windows
+      machine — not guessed API usage: every `x11-dl`/`raw-window-handle`
+      call was checked against the real fetched crate source first (exact
+      field names, function signatures, the `XEvent` union's `get_type()`
+      helper, etc.).
+- [ ] **The one thing that can't be verified without a real Linux
+      machine with an X server and GPU**: does a GPU surface actually
+      come up correctly inside a window `xscreensaver`'s driver — or even
+      just plain `xscreensaver-demo -root`/a bare X server — actually
+      gives us? This compiles clean and passes clippy on real
+      `ubuntu-latest` CI, which is real, independent verification of
+      *compilation* correctness — but nobody has watched a window render.
+      Treat this as the single biggest remaining unverified assumption,
+      same spirit as the CLI-contract caveat below.
+- [ ] The exact xscreensaver hack CLI contract
+      (`-root`/`-window-id`, and the `<command>`/`<_description>` shape
+      of the config XML in `installer/linux/xscreensaver-config/`) was
+      built from real, fetched examples in xscreensaver's own upstream
+      `hacks/config/*.xml` (confirmed against `pipes.xml` and
+      `hypercube.xml` directly, not paraphrased from memory), but still
+      needs checking against a live `xscreensaver`/`xscreensaver-demo`
+      install to confirm the driver actually invokes things the way these
+      examples imply.
 
 ### macOS — design only, no `.saver` code yet
 
@@ -190,9 +213,10 @@ for the full writeup per platform.
       every push — see the Phase 1 checkbox above for the first run's
       results.
 - [ ] Each wrapper gets its own smoke test appropriate to its platform —
-      done for Windows (see above); no longer blocked on CI access for
-      macOS/Linux (that's fixed), but still blocked on the actual `.saver`
-      and X11-embedding code not existing yet to test.
+      done for Windows (see above); Linux's X11-embedding code now exists
+      and is CI-verified to compile/lint clean, but still has no real
+      display-server smoke test (no Linux machine with an X server/GPU);
+      macOS is still blocked on the `.saver` code not existing at all.
 - [ ] Multi-monitor behavior (span vs. per-display) — not addressed on
       any platform yet; see "explicitly out of scope for now" below.
 
@@ -307,18 +331,46 @@ for the full writeup per platform.
       for `ARPPRODUCTICON` (Programs and Features listing) and both Start
       Menu shortcuts.
 
-### macOS / Linux — not started
+### Linux — done, compiles/lints clean on real CI, unverified at runtime
 
-- [ ] macOS: signed `.pkg`/`.dmg` installing the `.saver` bundle
-      (unsigned/ad-hoc-signed builds until there's an Apple Developer ID)
-      — blocked on the `.saver` itself not existing yet (Phase 3).
-- [ ] Linux: `.deb` and an AppImage — blocked on the X11 embedding not
-      existing yet (Phase 3).
-- [ ] `.github/workflows/release.yml` only builds the Windows `.msi` so
-      far. Once the `.saver`/`.deb`/AppImage exist, add matching jobs
-      there (same tag trigger, same one-version-number-from-the-tag
-      approach) so the end state is: pick your OS, download one file,
-      install it, select "neo_win_pipes" in your screensaver settings.
+- [x] `installer/linux/build-deb.sh` builds a real `.deb`:
+      `pipes-xscreensaver` into `/usr/libexec/xscreensaver/`, its
+      xscreensaver config XML into `/usr/share/xscreensaver/config/`,
+      `pipes-settings` into `/usr/bin/`, a `.desktop` launcher entry, and
+      the existing `assets/icon/linux/` hicolor set + scalable SVG into
+      `/usr/share/icons/hicolor/` (with `postinst`/`postrm` icon-cache and
+      desktop-database refresh, `|| true` since those helper tools are
+      themselves optional). Package `Depends` on `xscreensaver`,
+      `libx11-6`, `libvulkan1`, `libwayland-client0`, `libxkbcommon0`.
+- [x] `installer/linux/build-appimage.sh` builds a `pipes-settings`-only
+      AppImage — deliberately **not** the hack too: an AppImage is an
+      isolated, non-installed bundle by design, and `xscreensaver`'s
+      driver discovers hacks by finding real files in real system
+      locations, so a portable bundle structurally cannot deliver "install
+      this as my screensaver" no matter how it's built. Same shape of
+      limitation as a portable `.zip` not being able to register itself in
+      Windows' Screen Saver dropdown without a real installer.
+- [x] `.github/workflows/release.yml`'s `linux-packages` job builds both
+      on real `ubuntu-latest` (own version-patch step, own
+      `cargo build --release`, both packages, uploaded as an artifact),
+      alongside the existing `windows-installer` job; a new
+      `publish-release` job (`needs: [windows-installer, linux-packages]`)
+      downloads both artifacts and publishes one GitHub Release with
+      everything attached — avoids two jobs racing to create/update the
+      same tagged release concurrently.
+- [ ] Same runtime-verification gap as Phase 3 above: the `.deb`/AppImage
+      themselves are built and validated for real in CI (`dpkg-deb --info`/
+      `--contents`), but nobody has installed either on a real machine and
+      watched `xscreensaver-demo` actually list/run "Neo Pipes", or run the
+      AppImage and watched a window render.
+
+### macOS — not started
+
+- [ ] Signed `.pkg`/`.dmg` installing the `.saver` bundle (unsigned/
+      ad-hoc-signed builds until there's an Apple Developer ID) — blocked
+      on the `.saver` itself not existing yet (Phase 3), which is itself
+      blocked on having any way to compile Objective-C/Swift or link a
+      Mach-O binary at all from this project's dev machine.
 
 ## Explicitly out of scope for now
 

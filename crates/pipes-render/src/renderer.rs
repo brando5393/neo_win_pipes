@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
+use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 use wgpu::util::DeviceExt;
-use winit::window::Window;
 
 use crate::geometry::{self, Mesh};
 use crate::instance::InstanceRaw;
@@ -77,8 +77,19 @@ const INSTANCE_LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLay
 };
 
 impl Renderer {
-    pub async fn new(window: Arc<Window>, scene_bounds: (i32, i32, i32)) -> Self {
-        let size = window.inner_size();
+    /// Generic over anything implementing the raw-window-handle traits wgpu
+    /// needs for surface creation — not just `winit::window::Window` — so
+    /// `pipes-xscreensaver` can reuse this exact renderer with a raw X11
+    /// window handle instead of a winit-owned one. `size` is taken
+    /// explicitly rather than queried from the window (e.g.
+    /// `winit::window::Window::inner_size`) since a raw X11 handle has no
+    /// such method; callers query it themselves however is native to their
+    /// windowing setup.
+    pub async fn new<W>(window: Arc<W>, size: (u32, u32), scene_bounds: (i32, i32, i32)) -> Self
+    where
+        W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static,
+    {
+        let (width, height) = size;
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             ..Default::default()
@@ -118,8 +129,8 @@ impl Renderer {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: size.width.max(1),
-            height: size.height.max(1),
+            width: width.max(1),
+            height: height.max(1),
             present_mode: caps.present_modes[0],
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],

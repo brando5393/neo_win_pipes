@@ -152,6 +152,48 @@ The actual elevated install (`msiexec /i ...`, or just double-clicking the
 `.msi`) needs to be done interactively by someone who can approve the UAC
 prompt.
 
+## Building the Linux packages (`.deb` / AppImage)
+
+Needs a real Linux machine — `installer/linux/*.sh` are bash scripts
+using `dpkg-deb`/`curl`, and `pipes-xscreensaver`'s `x11-dl` dependency,
+while it costs nothing to *compile* elsewhere, obviously does nothing
+useful anywhere but Linux. This project's own dev machine doesn't have
+one; `.github/workflows/release.yml`'s `linux-packages` job (a real
+`ubuntu-latest` runner) is where this actually gets built and validated
+today.
+
+```sh
+sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev \
+  libxkbcommon-dev libwayland-dev libudev-dev libasound2-dev pkg-config
+
+cargo build --release -p pipes-xscreensaver -p pipes-settings
+
+installer/linux/build-deb.sh <version> \
+  target/release/pipes-xscreensaver \
+  target/release/pipes-settings \
+  installer/out/pipes-xscreensaver_<version>_amd64.deb
+
+dpkg-deb --info installer/out/pipes-xscreensaver_<version>_amd64.deb
+dpkg-deb --contents installer/out/pipes-xscreensaver_<version>_amd64.deb
+
+installer/linux/build-appimage.sh <version> \
+  target/release/pipes-settings \
+  "installer/out/PipesSettings-<version>-x86_64.AppImage"
+```
+
+`build-appimage.sh` downloads `appimagetool` itself (no local install
+needed) and runs it with `APPIMAGE_EXTRACT_AND_RUN=1` — CI runners
+(and plenty of desktop Linux setups) don't have FUSE available, which
+`appimagetool` and the AppImage it produces would otherwise need to
+mount themselves.
+
+Neither script's output has actually been installed on a real machine yet
+— see the honest gap called out in `docs/ROADMAP.md` and
+`docs/ARCHITECTURE.md`'s Linux sections. If you have real Linux access,
+confirming that gap (does `xscreensaver-demo` actually list and run "Neo
+Pipes"? does a window actually render?) is the single most valuable thing
+you could check.
+
 ## Cutting a release
 
 `.github/workflows/release.yml` does the rest once you push a tag:

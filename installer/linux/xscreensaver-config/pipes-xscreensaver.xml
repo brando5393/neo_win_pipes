@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<!--
+  xscreensaver hack config descriptor. Registers "Neo Pipes" in
+  xscreensaver-demo's hack list and its settings dialog. Named
+  "pipes-xscreensaver" (matching the binary), not "pipes" - the real
+  xscreensaver package already ships its own GL-based hack literally
+  called "pipes", and this must not collide with it.
+
+  No <number>/<boolean>/<select> controls: unlike most hacks, this one
+  has no per-run CLI tunables of its own. Every setting (pipe count,
+  speed, style, palette, camera) lives in the shared AppConfig file, and
+  is edited via the standalone "Pipes Settings" app installed alongside
+  this package - not through this dialog. Real-world XML structure
+  (attribute names, <command>/<_description> shape) confirmed against
+  xscreensaver's own upstream hacks/config/*.xml files (e.g. pipes.xml,
+  hypercube.xml); the deeper question of whether the driver's actual
+  -root/-window-id invocation lines up exactly as expected is this
+  package's biggest unverified assumption - see docs/ROADMAP.md.
+-->
+<screensaver name="pipes-xscreensaver" _label="Neo Pipes">
+
+  <command arg="-root"/>
+
+  <_description>
+A cross-platform recreation of the classic Windows 3D Pipes screensaver:
+colored pipes grow through a 3D grid, turning at random joints, until the
+scene fills up and resets.
+
+All settings (pipe count, speed, style, palette, camera) are configured
+via the standalone "Pipes Settings" app installed alongside this
+package, not via this dialog.
+
+https://github.com/brando5393/neo_win_pipes
+  </_description>
+</screensaver>

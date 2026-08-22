@@ -95,8 +95,96 @@ jobs:
         shell: pwsh
         run: wix msi validate installer\out\neo_win_pipes.msi
 
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: installer/out/neo_win_pipes.msi
+
+  linux-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set workspace version to match the tag
+        run: |
+          # bash equivalent of the Windows job's PowerShell patch above —
+          # only touches [workspace.package]'s version line, not the
+          # inline `version = "..."` fields inside [workspace.dependencies]
+          # entries.
+          awk -v new="${{ steps.version.outputs.version }}" '
+            /^\[.*\]/ { in_ws_pkg = ($0 == "[workspace.package]") }
+            in_ws_pkg && /^version[[:space:]]*=/ { print "version = \"" new "\""; next }
+            { print }
+          ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
+          grep '^version' Cargo.toml
+
+      - name: Install Linux windowing/graphics dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev \
+            libwayland-dev libudev-dev libasound2-dev pkg-config
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run test suite
+        run: cargo test --workspace --verbose
+
+      - name: Build release binaries
+        run: cargo build --release -p pipes-xscreensaver -p pipes-settings --verbose
+
+      - name: Build .deb package
+        run: |
+          ./installer/linux/build-deb.sh "${{ steps.version.outputs.version }}" \
+            target/release/pipes-xscreensaver \
+            target/release/pipes-settings \
+            installer/out/pipes-xscreensaver_${{ steps.version.outputs.version }}_amd64.deb
+
+      - name: Inspect .deb package
+        run: |
+          dpkg-deb --info installer/out/*.deb
+          dpkg-deb --contents installer/out/*.deb
+
+      - name: Build AppImage
+        run: |
+          ./installer/linux/build-appimage.sh "${{ steps.version.outputs.version }}" \
+            target/release/pipes-settings \
+            "installer/out/PipesSettings-${{ steps.version.outputs.version }}-x86_64.AppImage"
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            installer/out/*.deb
+            installer/out/*.AppImage
+
+  publish-release:
+    needs: [windows-installer, linux-packages]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: dist
+
+      - name: Download Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: dist
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: installer/out/neo_win_pipes.msi
+          files: dist/*
           generate_release_notes: true

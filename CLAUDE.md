@@ -11,22 +11,33 @@ fullscreen demo app. Full context: `docs/RESEARCH.md` (what the original
 did and why), `docs/ARCHITECTURE.md` (how this codebase is structured),
 `docs/ROADMAP.md` (what phase we're in).
 
-**Current phase**: Phase 4, Windows-only so far. `neo_win_pipes.msi`
-(`installer/main.wxs`, built with WiX v7) is a real, double-click
-installer: `pipes-app.exe` → `System32\neo_win_pipes.scr`,
+**Current phase**: Phase 4. Windows is fully there:
+`neo_win_pipes.msi` (`installer/main.wxs`, built with WiX v7) is a real,
+double-click installer: `pipes-app.exe` → `System32\neo_win_pipes.scr`,
 `pipes-settings.exe` → Program Files + Start Menu shortcuts (including
 uninstall). `pipes-settings::update` checks GitHub Releases in the
-background and offers a one-click update; `.github/workflows/release.yml`
-publishes a release (and the `.msi`) whenever a `v*.*.*` tag is pushed —
-that tag is the single source of truth for the version that ends up
-embedded in the binaries, the installer, and the release page. On top of
-Phase 3's `.scr` contract (`/s`/`/c`/`/p <hwnd>` — see
-`screensaver_args.rs`/`winsaver.rs`) and Phase 2.5's `pipes-render` +
-`pipes-settings`. **macOS and Linux are not there yet** — Linux has
-tested argument parsing only (`pipes-xscreensaver`), macOS has no code at
-all (design-only in `docs/ROADMAP.md`), both honestly because this project
-has no Mac/Linux machine to build or verify against. Don't assume either
-is installable; check `docs/ROADMAP.md` before claiming otherwise.
+background and offers a one-click update. On top of Phase 3's `.scr`
+contract (`/s`/`/c`/`/p <hwnd>` — see `screensaver_args.rs`/`winsaver.rs`)
+and Phase 2.5's `pipes-render` + `pipes-settings`.
+
+**Linux has real code now, but an important verification gap**:
+`pipes-xscreensaver` actually renders (real X11 window/display resolution
+via `x11-dl`, reusing `pipes-render::Renderer` through a raw-window-handle
+bridge — see `x11_target.rs`), and `installer/linux/` builds a real `.deb`
+(the hack + `pipes-settings`, installed via `xscreensaver`'s own
+config-XML convention) plus a `pipes-settings`-only AppImage. All of it
+compiles, type-checks, and passes clippy against a real `ubuntu-latest`
+CI host — **but this project still has no Linux machine with an X
+server/GPU to actually watch a window render**, so whether the pipes
+simulation visually comes up correctly inside a real
+`xscreensaver`-managed window is genuinely unverified. Don't claim it's
+been "seen working" — it's been built and compiled for real, not watched.
+
+**macOS is still design-only** — no code at all, no `.saver` bundle, not
+even argument parsing, because there's no way to compile Objective-C/Swift
+or link a Mach-O binary from this project's Windows dev machine at all
+(unlike Linux, which at least cross-compiles/type-checks here). See
+`docs/ROADMAP.md` before claiming otherwise about either platform.
 
 ## Commands
 

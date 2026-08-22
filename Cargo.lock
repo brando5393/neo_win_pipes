@@ -1999,8 +1999,13 @@ dependencies = [
 name = "pipes-xscreensaver"
 version = "0.1.0"
 dependencies = [
+ "pipes-core",
+ "pipes-render",
+ "pollster",
  "tracing",
  "tracing-subscriber",
+ "wgpu",
+ "x11-dl",
 ]
 
 [[package]]

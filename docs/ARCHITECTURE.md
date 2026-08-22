@@ -204,19 +204,55 @@ on input after the grace period — including confirming the renamed
 `neo_win_pipes.scr` file itself behaves identically to `pipes-app.exe`
 when invoked directly (as Windows' own screensaver mechanism would).
 
-### Linux — argument parsing done and tested; rendering not wired up
+### Linux — real rendering code; compiles and lints clean on real CI, unverified at runtime
 
 `pipes-xscreensaver` parses the xscreensaver "hack" invocation contract
 (`args.rs`: `-root` or `-window-id <id>`, decimal or hex) with the same
-pure/tested approach as the Windows side. What's **not** implemented:
-opening an X11 connection, resolving/embedding into the target window via
-a raw Xlib/XCB window handle, and wiring that into `pipes-render`. That
-needs `x11rb` (or `x11-dl`) and careful `raw-window-handle` construction —
-deliberately left unwritten rather than shipped as unverified guesswork,
-because this project has no Linux machine to compile or run it against.
-`docs/FEATURE_IDEAS.md`'s research note on xscreensaver's exact CLI
-contract is itself a best-effort reading of third-party ports, not a
-confirmed fact — the single biggest thing to verify first on real Linux.
+pure/tested approach as the Windows side, and — unlike earlier phases of
+this project — actually renders into it. Two pieces made that possible:
+
+- **`pipes_render::Renderer::new` became generic.** It used to take a
+  concrete `Arc<winit::window::Window>`; it now takes
+  `Arc<W> where W: HasWindowHandle + HasDisplayHandle + Send + Sync +
+  'static` (the exact bound `wgpu::Instance::create_surface` itself
+  needs — re-exported as `pipes_render::rwh` so callers don't need their
+  own direct `raw-window-handle`/`wgpu` dependency just for these types).
+  `winit::window::Window` already satisfies this, so `pipes-app`/
+  `pipes-settings` are unaffected; `pipes-xscreensaver` supplies its own
+  raw X11 handle wrapper instead of a winit window.
+- **`x11_target.rs`** owns the X11 side: opens the default display via
+  `x11-dl` (Xlib functions loaded with `dlopen` *at runtime*, not linked
+  at build time — the reason this compiles on Windows/macOS CI too,
+  unlike a hard link-time X11 dependency would), resolves `-root`/
+  `-window-id` into a concrete window, selects for
+  `StructureNotifyMask` so resizes are observed via `ConfigureNotify`,
+  and hand-implements `HasWindowHandle`/`HasDisplayHandle` for the
+  `RawWindowHandle::Xlib`/`RawDisplayHandle::Xlib` variants. `main.rs`'s
+  Linux branch then runs a plain loop (no winit event loop, since there's
+  no winit window here) — step the `Scene` on the tick interval, poll for
+  a resize, call `Renderer::render` — the same pipeline `pipes-app` uses.
+
+**What "real" means here, precisely**: every `x11-dl`/`raw-window-handle`
+API call was checked against the actual fetched crate source (exact
+field names and function signatures, the `XEvent` union's `get_type()`
+helper, `XConfigureEvent`'s field layout — not recalled from memory), and
+the whole thing compiles and passes `clippy -D warnings` against
+`x86_64-unknown-linux-gnu`, both locally (`cargo check --target
+x86_64-unknown-linux-gnu`, since a Windows host can't link a Linux
+binary but *can* type-check one) and for real on `ubuntu-latest` CI
+(which does fully compile and link it, being an actual Linux host). What
+that does **not** prove: that a GPU surface actually comes up correctly
+inside a window `xscreensaver`'s driver hands us, or even inside a bare
+X server — nobody has watched this render. Treat that as the single
+biggest open question, same spirit as the CLI-contract caveat below.
+
+`docs/FEATURE_IDEAS.md`'s original research note on xscreensaver's exact
+CLI contract was a best-effort reading of third-party ports; the config
+XML in `installer/linux/xscreensaver-config/pipes-xscreensaver.xml` is a
+step up from that (built from xscreensaver's own real upstream
+`hacks/config/pipes.xml` and `hypercube.xml`, fetched and read directly,
+not paraphrased), but the driver's actual invocation behavior is still
+unconfirmed against a live install.
 
 ### macOS — design only, no code yet
 
@@ -301,6 +337,49 @@ Start Menu, invoking `msiexec /x [ProductCode]` — genuinely just a more
 discoverable path to what Programs & Features (Settings → Apps) already
 does automatically for any MSI-installed product; not something this file
 had to build from scratch.
+
+## Linux packages (Phase 4)
+
+`installer/linux/build-deb.sh` builds a real `.deb`, and
+`installer/linux/build-appimage.sh` a `pipes-settings`-only AppImage:
+
+- **`.deb`**: `pipes-xscreensaver` → `/usr/libexec/xscreensaver/`
+  (Debian's real convention for hack binaries, not a guess — confirmed
+  via Debian's own packaging documentation), its xscreensaver config XML
+  → `/usr/share/xscreensaver/config/` (this is the actual registration
+  mechanism xscreensaver-demo uses to discover a hack and know its
+  settings-dialog shape, not just a nice-to-have), `pipes-settings` →
+  `/usr/bin/`, a `.desktop` launcher entry, and the existing
+  `assets/icon/linux/` hicolor PNG set + scalable SVG (generated back
+  when the Windows app icon was built — reused here, not duplicated)
+  into `/usr/share/icons/hicolor/`, with `postinst`/`postrm` refreshing
+  the icon cache and desktop database (`|| true`, since
+  `gtk-update-icon-cache`/`update-desktop-database` are themselves
+  optional tools this package has no real reason to hard-depend on).
+- **AppImage — deliberately not the hack too.** An AppImage is an
+  isolated, non-installed bundle by design; `xscreensaver`'s driver finds
+  hacks by locating real files in real system locations, which a portable
+  bundle structurally cannot provide no matter how it's built — the same
+  category of limitation as a portable `.zip` not being able to register
+  itself in Windows' Screen Saver dropdown without a real installer (see
+  above). So the AppImage wraps only `pipes-settings`, a genuinely
+  standalone app with no such requirement, as a distribution option for
+  non-Debian distros.
+- **CI structure**: `release.yml`'s `windows-installer` and
+  `linux-packages` jobs each build and upload their own artifacts
+  independently (own version-patch step, own `cargo build --release`);
+  a third `publish-release` job (`needs: [windows-installer,
+  linux-packages]`) downloads both artifact sets and does one
+  `softprops/action-gh-release` call with everything attached. This
+  isn't incidental structure — two jobs each independently calling
+  `action-gh-release` for the *same* tag would race to create/update the
+  same release concurrently, so the two build jobs upload artifacts and
+  only the one downstream job actually touches the release.
+- **Validated for real in CI** (`dpkg-deb --info`/`--contents` on the
+  actual built `.deb`, on real `ubuntu-latest`), but — same caveat as the
+  rendering code above — nobody has installed either package on a real
+  machine and watched `xscreensaver-demo` list/run "Neo Pipes", or run
+  the AppImage and watched a window render.
 
 ## Auto-update (`pipes-settings::update`)
 

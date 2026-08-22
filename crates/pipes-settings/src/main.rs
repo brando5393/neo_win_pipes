@@ -92,7 +92,12 @@ fn main() {
         app_config.sim.bounds.height,
         app_config.sim.bounds.depth,
     );
-    let mut renderer = pollster::block_on(Renderer::new(window.clone(), bounds));
+    let window_size = window.inner_size();
+    let mut renderer = pollster::block_on(Renderer::new(
+        window.clone(),
+        (window_size.width, window_size.height),
+        bounds,
+    ));
     let mut scene = Scene::new(app_config.sim.clone(), rand_seed());
 
     let egui_ctx = egui::Context::default();
