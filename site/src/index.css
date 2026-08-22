@@ -10,16 +10,9 @@ body {
   font-family: "VT323", "Courier New", monospace;
 }
 
-/* Monofett's fat letterforms only stay legible at large sizes — h1 (hero
-   title) and h2 (section titles) are big enough, but h3 (feature-card
-   titles, text-lg) render as illegible solid blobs at that font's weight,
-   so h3 keeps the page's own VT323 instead, just bold for contrast. */
 h1,
-h2 {
-  font-family: "Monofett", "VT323", "Courier New", monospace;
-  letter-spacing: 0.01em;
-}
-
+h2,
 h3 {
-  font-weight: 700;
+  font-family: "DotGothic16", "VT323", "Courier New", monospace;
+  letter-spacing: 0.01em;
 }
