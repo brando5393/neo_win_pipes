@@ -32,7 +32,7 @@ is installable; check `docs/ROADMAP.md` before claiming otherwise.
 
 ```sh
 cargo build --workspace
-cargo test --workspace              # must pass before any change is done — 55 tests as of Phase 4 (Windows)
+cargo test --workspace              # must pass before any change is done — 76 tests as of v0.2.1 (Phase 4, Windows)
 cargo run -p pipes-app -- --seed 1  # the screensaver, dev mode (behaves like /s)
 cargo run -p pipes-app -- /s        # exercise the real Windows contract directly
 cargo run -p pipes-app -- /c        # launches pipes-settings, exits

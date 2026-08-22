@@ -69,11 +69,13 @@ just say "seed 12345, tick 800" instead of a screen recording.
 ## `pipes-render`
 
 A `winit` + `wgpu` rendering/config layer with no `main()` of its own,
-structured in four parts:
+structured in six parts:
 
 - **`geometry`** — pure procedural mesh generation (unit cylinder, cuboid,
-  UV sphere), no GPU handle involved, so shape correctness (vertex/index
-  counts, unit normals, radius bounds) is unit-tested without a window.
+  UV sphere, plus `lathe`/`torus_arc`/`merge_meshes` — the building blocks
+  behind the `teapot()` easter-egg mesh), no GPU handle involved, so shape
+  correctness (vertex/index counts, unit normals, radius bounds) is
+  unit-tested without a window.
 - **`instance`** — converts a live `pipes_core::Scene` into per-mesh GPU
   instance data: one cylinder or cuboid instance per path segment
   (depending on `PipeStyle`), one sphere instance per joint (scaled up for
@@ -98,6 +100,21 @@ structured in four parts:
   load, so a hand-edited or stale config file can't produce degenerate
   geometry or a divide-by-zero — unit-tested directly (missing file,
   corrupt file, save/load round-trip, out-of-range clamping).
+- **`diagnostics`** — shared by both binaries: `init_logging()` sets up
+  logging to stdout *and* a daily-rotating file next to the config file
+  (release builds have no console — see "Windows installer" below — so
+  without the file, release-build logging would go nowhere), and
+  `install_panic_hook()` shows a native fatal-error dialog on an unhandled
+  panic (plain-English explanation, the real log file path, and the raw
+  technical detail, in that order — see [LOGGING.md](LOGGING.md)).
+- **`app_icon`** — the window/taskbar icon, built from an embedded raw
+  RGBA pixel dump via `winit::window::Icon`. Kept separate from the
+  `.ico` embedded into the `.exe` itself (via `build.rs` + `winres`,
+  Windows-only): that resource icon is what Explorer/Start Menu/Programs-
+  and-Features show for the *file*, but a running window needs its own
+  `with_window_icon`/`with_taskbar_icon` calls (the latter Windows-only)
+  to show the same icon on the title bar and taskbar button — winit
+  doesn't do that automatically from the exe's embedded resource.
 
 `wgpu` was chosen over raw OpenGL/Direct3D because one API target compiles
 to Vulkan (Linux), Metal (macOS), and DirectX12/Vulkan (Windows) — what
@@ -234,9 +251,25 @@ two things to two different, deliberately separate places:
   Menu shortcut — installed like any normal app, not dumped into
   `System32` alongside the `.scr` just because that would've been easier.
   This is why `pipes-app`'s `/c` handler
-  (`settings_app_candidates()` in `main.rs`) checks *two* locations, not
-  one: next to itself (dev/testing, both binaries in the same
-  `target/debug`) and this Program Files path (installed).
+  (`settings_app_candidates()` in `main.rs`) checks locations beyond just
+  next to itself (dev/testing, both binaries in the same `target/debug`):
+  it also checks `ProgramFiles`, `ProgramW6432`, and `ProgramFiles(x86)`,
+  not just one. That redundancy is load-bearing, not defensive
+  over-engineering: `wix build` must be passed `-arch x64` (and
+  `main.wxs`'s `StandardDirectory` refs must be `ProgramFiles64Folder`/
+  `System64Folder`, not the plain 32-bit ones) so that the installer's
+  declared platform actually matches the native 64-bit binaries `cargo
+  build --release` produces — a real, shipped bug (v0.2.0) where this
+  drifted caused `%ProgramFiles%` (as seen by a native 64-bit
+  `pipes-app.exe`) to disagree with where WiX had actually put
+  `pipes-settings.exe`, so the Settings button silently did nothing.
+
+`.exe`/`.scr` file icons come from a `.ico` embedded as a PE resource
+(`build.rs` + the `winres` crate, in both `pipes-app` and
+`pipes-settings`, Windows-only) built from the same source image as the
+running window's icon (see `pipes-render`'s `app_icon` module above) —
+`main.wxs` also points `ARPPRODUCTICON` (the icon Programs and Features
+shows) and both Start Menu shortcuts at the same `.ico`.
 
 Deliberately **not** done automatically at install time: selecting
 `neo_win_pipes` as the active screensaver, or touching
@@ -318,8 +351,8 @@ publishes a GitHub Release with the `.msi` attached via
 tag, flows into the compiled binary, the installer, and the release page
 — not three things to keep in sync by hand.
 
-Cutting a release is then just: `git tag v0.2.0 && git push origin
-v0.2.0`. See [DEVELOPMENT.md](DEVELOPMENT.md) for the full step.
+Cutting a release is then just: `git tag vX.Y.Z && git push origin
+vX.Y.Z`. See [DEVELOPMENT.md](DEVELOPMENT.md) for the full step.
 
 ## Logging
 

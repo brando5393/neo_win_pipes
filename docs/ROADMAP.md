@@ -253,7 +253,7 @@ for the full writeup per platform.
       dialog with a plain-English summary before the process exits. See
       `docs/LOGGING.md`.
 
-#### Known issues (found testing the real v0.2.0 install — fixed, not yet released)
+#### Known issues (found testing the real v0.2.0 install — fixed in v0.2.1)
 
 - [x] Clicking "Settings" from the Windows screensaver dialog didn't open
       Pipes Settings after a real install. Real root cause (confirmed by

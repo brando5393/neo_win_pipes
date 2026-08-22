@@ -157,14 +157,14 @@ prompt.
 `.github/workflows/release.yml` does the rest once you push a tag:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 That single tag drives everything: CI patches `Cargo.toml`'s
-`[workspace.package]` version to `0.2.0` (so the binaries' embedded
+`[workspace.package]` version to `X.Y.Z` (so the binaries' embedded
 `CARGO_PKG_VERSION` matches), runs the full test suite, builds release
-binaries and the `.msi` (`-d ProductVersion=0.2.0`, so the installer's
+binaries and the `.msi` (`-d ProductVersion=X.Y.Z`, so the installer's
 version matches too), and publishes a GitHub Release with the `.msi`
 attached. This is also what `pipes-settings`' in-app update checker
 watches for — see

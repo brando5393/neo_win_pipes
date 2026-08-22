@@ -37,10 +37,11 @@ cargo run -p pipes-app -- /p 123456       # embeds into HWND 123456 (from anothe
 
 ## Installing it as your actual Windows screensaver
 
-Build (or download, once GitHub Releases carries one — see
-[ROADMAP.md](ROADMAP.md)) `neo_win_pipes.msi` — see
+Download `neo_win_pipes.msi` from the
+[latest GitHub Release](https://github.com/brando5393/neo_win_pipes/releases/latest),
+or build it yourself — see
 [DEVELOPMENT.md](DEVELOPMENT.md#building-the-windows-installer-msi) for
-how it's built. Then just run it:
+how. Then just run it:
 
 1. Double-click `neo_win_pipes.msi`. Windows will prompt for
    administrator approval (UAC) — installing to `System32` is genuinely a
@@ -63,6 +64,15 @@ how it's built. Then just run it:
 | Variable   | Meaning |
 |------------|---------|
 | `RUST_LOG` | Log verbosity/filter, e.g. `RUST_LOG=debug`. See [LOGGING.md](LOGGING.md). |
+
+### If something goes wrong
+
+A release build has no console window, so there's nothing to watch live
+— but every run still writes a plain-text log file under
+`%APPDATA%\neo-win-pipes\neo_win_pipes\data\logs\` (one file per binary
+per day), and an unhandled crash shows a dialog pointing at that same
+file with the technical detail included, so you don't have to go find it
+yourself. See [LOGGING.md](LOGGING.md) for the full story.
 
 ## Running the settings app
 
