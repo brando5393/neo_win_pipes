@@ -1,3 +1,4 @@
+import { Workflow, Palette, Sparkles, SlidersHorizontal, Bug, CheckCircle2, AlertTriangle, MinusCircle, GitFork, BookOpen, Tag, Download } from 'lucide-react'
 import DownloadButtons from './components/DownloadButtons'
 import screensaverHero from './assets/screensaver-hero.png'
 import pipesSettings from './assets/pipes-settings.png'
@@ -6,22 +7,27 @@ const REPO = 'brando5393/neo_win_pipes'
 
 const FEATURES = [
   {
+    icon: Workflow,
     title: 'Procedural pipe growth',
     body: 'Colored pipes grow through a 3D grid one segment at a time, turning at random joints, until the scene fills up and dissolves away to start again.',
   },
   {
+    icon: Palette,
     title: 'Themes, one click',
     body: '"Classic \'96", "Neon", and "Monochrome" bundle a whole look — palette, pipe style, and speed — together. Every setting underneath is still tunable by hand.',
   },
   {
+    icon: Sparkles,
     title: 'The teapot easter egg',
     body: "A rare, separate roll occasionally renders a procedural Utah teapot at a joint instead of the usual ball or elbow — an honest nod to the original screensaver's own hidden teapot, not a pixel-exact recreation.",
   },
   {
+    icon: SlidersHorizontal,
     title: 'Live-preview settings',
     body: 'Pipes Settings shows the simulation running right next to every slider — pipe count, speed, style, palette, grid size — so you see exactly what you’re about to set as your screensaver.',
   },
   {
+    icon: Bug,
     title: 'Report a bug in two clicks',
     body: 'A "Report Issue / Feedback…" button right in the settings drawer opens a pre-filled GitHub issue — category, title, description, and (optionally) recent log output, with your home directory path redacted first.',
   },
@@ -39,6 +45,12 @@ const toneClasses = {
   none: 'bg-slate-500/15 text-slate-400 border-slate-500/30',
 }
 
+const toneIcons = {
+  good: CheckCircle2,
+  mid: AlertTriangle,
+  none: MinusCircle,
+}
+
 export default function App() {
   return (
     <div className="min-h-screen bg-[#0b0d12] text-slate-200">
@@ -51,7 +63,14 @@ export default function App() {
         />
         <div className="absolute inset-0 bg-gradient-to-b from-[#0b0d12]/40 via-[#0b0d12]/70 to-[#0b0d12]" />
         <div className="relative mx-auto max-w-4xl px-6 py-28 text-center sm:py-36">
-          <h1 className="text-4xl font-bold tracking-tight text-white sm:text-6xl">neo_win_pipes</h1>
+          <a
+            href={`https://github.com/${REPO}`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300 transition hover:border-cyan-400/40 hover:text-white"
+          >
+            <GitFork className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Open source on GitHub
+          </a>
+          <h1 className="mt-6 text-4xl font-bold tracking-tight text-white sm:text-6xl">neo_win_pipes</h1>
           <p className="mt-4 text-lg text-slate-300 sm:text-xl">
             A cross-platform recreation of the classic Windows 3D Pipes screensaver, in Rust.
           </p>
@@ -64,15 +83,21 @@ export default function App() {
       {/* Platform status */}
       <section className="mx-auto max-w-4xl px-6 py-10">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {STATUS.map((s) => (
-            <div key={s.platform} className={`rounded-lg border px-4 py-3 ${toneClasses[s.tone]}`}>
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-white">{s.platform}</span>
-                <span className="text-xs font-medium uppercase tracking-wide">{s.state}</span>
+          {STATUS.map((s) => {
+            const ToneIcon = toneIcons[s.tone]
+            return (
+              <div key={s.platform} className={`rounded-lg border px-4 py-3 ${toneClasses[s.tone]}`}>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-white">{s.platform}</span>
+                  <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide">
+                    <ToneIcon className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    {s.state}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs opacity-80">{s.detail}</p>
               </div>
-              <p className="mt-1 text-xs opacity-80">{s.detail}</p>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </section>
 
@@ -81,9 +106,14 @@ export default function App() {
         <h2 className="text-center text-2xl font-bold text-white sm:text-3xl">What it does</h2>
         <div className="mt-10 grid grid-cols-1 gap-8 sm:grid-cols-2">
           {FEATURES.map((f) => (
-            <div key={f.title}>
-              <h3 className="text-lg font-semibold text-white">{f.title}</h3>
-              <p className="mt-2 text-slate-400">{f.body}</p>
+            <div key={f.title} className="flex gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-cyan-400/20 bg-cyan-400/10 text-cyan-300">
+                <f.icon className="h-5 w-5" strokeWidth={1.75} />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-white">{f.title}</h3>
+                <p className="mt-2 text-slate-400">{f.body}</p>
+              </div>
             </div>
           ))}
         </div>
@@ -103,7 +133,10 @@ export default function App() {
 
       {/* Download, repeated at the bottom for anyone who scrolled past the hero */}
       <section className="mx-auto max-w-4xl px-6 py-16 text-center">
-        <h2 className="text-2xl font-bold text-white sm:text-3xl">Get it</h2>
+        <h2 className="flex items-center justify-center gap-2 text-2xl font-bold text-white sm:text-3xl">
+          <Download className="h-6 w-6 text-cyan-300" strokeWidth={1.75} />
+          Get it
+        </h2>
         <div className="mt-8">
           <DownloadButtons />
         </div>
@@ -112,16 +145,20 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-white/10 px-6 py-10 text-center text-sm text-slate-500">
         <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-          <a href={`https://github.com/${REPO}`} className="hover:text-slate-300">
+          <a href={`https://github.com/${REPO}`} className="flex items-center gap-1.5 hover:text-slate-300">
+            <GitFork className="h-4 w-4" strokeWidth={1.75} />
             GitHub repository
           </a>
-          <a href={`https://github.com/${REPO}/wiki`} className="hover:text-slate-300">
+          <a href={`https://github.com/${REPO}/wiki`} className="flex items-center gap-1.5 hover:text-slate-300">
+            <BookOpen className="h-4 w-4" strokeWidth={1.75} />
             Wiki
           </a>
-          <a href={`https://github.com/${REPO}/issues/new`} className="hover:text-slate-300">
+          <a href={`https://github.com/${REPO}/issues/new`} className="flex items-center gap-1.5 hover:text-slate-300">
+            <Bug className="h-4 w-4" strokeWidth={1.75} />
             Report an issue
           </a>
-          <a href={`https://github.com/${REPO}/releases`} className="hover:text-slate-300">
+          <a href={`https://github.com/${REPO}/releases`} className="flex items-center gap-1.5 hover:text-slate-300">
+            <Tag className="h-4 w-4" strokeWidth={1.75} />
             All releases
           </a>
         </div>

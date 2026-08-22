@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AppWindow, Package, PackageOpen, ArrowDownToLine } from 'lucide-react'
 
 const REPO = 'brando5393/neo_win_pipes'
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`
@@ -10,9 +11,9 @@ const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`
 // moment a new version ships. Fetching the real release and matching by
 // extension keeps all three correct with zero rebuilds required.
 const MATCHERS = [
-  { id: 'windows', label: 'Windows', sub: '.msi installer', match: (name) => name.endsWith('.msi') },
-  { id: 'linux-deb', label: 'Linux (.deb)', sub: 'Debian / Ubuntu', match: (name) => name.endsWith('.deb') },
-  { id: 'linux-appimage', label: 'Linux (AppImage)', sub: 'Pipes Settings only', match: (name) => name.endsWith('.AppImage') },
+  { id: 'windows', label: 'Windows', sub: '.msi installer', icon: AppWindow, match: (name) => name.endsWith('.msi') },
+  { id: 'linux-deb', label: 'Linux (.deb)', sub: 'Debian / Ubuntu', icon: Package, match: (name) => name.endsWith('.deb') },
+  { id: 'linux-appimage', label: 'Linux (AppImage)', sub: 'Pipes Settings only', icon: PackageOpen, match: (name) => name.endsWith('.AppImage') },
 ]
 
 export default function DownloadButtons() {
@@ -43,16 +44,20 @@ export default function DownloadButtons() {
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-3xl">
-        {MATCHERS.map(({ id, label, sub, match }) => {
+        {MATCHERS.map(({ id, label, sub, icon: Icon, match }) => {
           const asset = assets?.find((a) => match(a.name))
           const href = asset ? asset.browser_download_url : RELEASES_PAGE
           return (
             <a
               key={id}
               href={href}
-              className="flex flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-6 py-5 text-center transition hover:border-cyan-400/50 hover:bg-white/10"
+              className="group flex flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-6 py-5 text-center transition hover:border-cyan-400/50 hover:bg-white/10"
             >
-              <span className="text-lg font-semibold text-white">{label}</span>
+              <Icon className="h-7 w-7 text-cyan-300" strokeWidth={1.5} />
+              <span className="mt-2 flex items-center gap-1.5 text-lg font-semibold text-white">
+                {label}
+                <ArrowDownToLine className="h-4 w-4 text-slate-500 transition group-hover:text-cyan-300" strokeWidth={2} />
+              </span>
               <span className="text-sm text-slate-400">{sub}</span>
             </a>
           )
