@@ -3,6 +3,7 @@
 //! preview). See `docs/ARCHITECTURE.md` for how these fit together.
 
 pub mod config;
+pub mod diagnostics;
 pub mod geometry;
 pub mod instance;
 pub mod renderer;

@@ -243,6 +243,15 @@ for the full writeup per platform.
       will warn on first run/update until there's a code-signing
       certificate, which costs money — deliberately out of scope for a
       free hobby project unless that changes).
+- [x] Persistent file logging + a human-readable fatal-error dialog.
+      Prompted by the `windows_subsystem` fix above: a release build has
+      no console, so `stdout` (where logs used to go) now goes nowhere —
+      without this, a real failure would be completely invisible instead
+      of just hard to see. `pipes_render::diagnostics` (shared by both
+      binaries) now writes a daily-rotating log file alongside the config
+      file, and installs a panic hook that shows a native `MessageBoxW`
+      dialog with a plain-English summary before the process exits. See
+      `docs/LOGGING.md`.
 
 #### Known issues (found testing the real v0.2.0 install — fixed, not yet released)
 

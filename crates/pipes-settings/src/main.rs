@@ -54,18 +54,11 @@ fn spawn_update_install(available: update::AvailableUpdate) {
     });
 }
 
-fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_target(false)
-        .compact()
-        .init();
-}
-
 fn main() {
-    init_logging();
+    // Held for the whole process lifetime: dropping it stops the file
+    // logger's background writer from flushing further lines.
+    let _log_guard = pipes_render::diagnostics::init_logging("pipes-settings");
+    pipes_render::diagnostics::install_panic_hook("Pipes Settings");
 
     let mut app_config = AppConfig::load();
     app_config.sanitize();

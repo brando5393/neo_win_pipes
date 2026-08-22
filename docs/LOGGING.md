@@ -72,6 +72,33 @@ identifying details, at what time.
   failure modes beyond programmer error, which should panic loudly in
   debug/test builds rather than log-and-continue.
 
+## Where logs actually go
+
+Both `pipes-app` and `pipes-settings` call the same
+`pipes_render::diagnostics::init_logging()` at startup, which sets up
+*two* destinations, not one:
+
+- **stdout**, exactly as before — visible in `cargo run`'s console.
+- **A daily-rotating plain-text file** under
+  `%APPDATA%\neo-win-pipes\neo_win_pipes\data\logs\<binary-name>.log.<date>`
+  (via `tracing-appender`). This exists because shipping release builds
+  now set `#![windows_subsystem = "windows"]` (see `docs/ROADMAP.md`'s
+  known-issues history) to stop a console window from popping up and
+  killing the app on close — but that also means release builds have no
+  console for `stdout` to land in, so without the file, release-build
+  logging would be silently discarded entirely. Log file retention isn't
+  implemented (files accumulate one per day, forever) — a known gap, not
+  an oversight, acceptable for now given how small these files are.
+
+`pipes_render::diagnostics::install_panic_hook()` also runs at startup in
+both binaries: on an unhandled panic it still runs Rust's default hook
+(so a debug-build console shows the usual backtrace), logs the panic
+through `tracing` (so it lands in the file above too), and — on Windows —
+shows a native `MessageBoxW` dialog with a plain-English summary, so a
+real user sees "something went wrong" instead of the window just
+vanishing. There's no dialog on macOS/Linux yet (Phase 4 is Windows-only
+— see `CLAUDE.md`); the panic is still logged both ways there.
+
 ## Design rule for new events
 
 When adding an event: write the message as a short plain-English sentence

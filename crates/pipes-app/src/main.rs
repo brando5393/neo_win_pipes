@@ -47,16 +47,6 @@ fn parse_seed(args: &[String]) -> u64 {
     seed
 }
 
-fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_target(false)
-        .compact()
-        .init();
-}
-
 /// Candidate locations for `pipes-settings`, tried in order: (1) next to
 /// this executable, for dev/testing convenience when both binaries sit
 /// in the same folder (`cargo run`/`target/debug`); (2) the installed
@@ -116,7 +106,11 @@ fn run_configure() {
 }
 
 fn main() {
-    init_logging();
+    // Held for the whole process lifetime: dropping it stops the file
+    // logger's background writer from flushing further lines.
+    let _log_guard = pipes_render::diagnostics::init_logging("pipes-app");
+    pipes_render::diagnostics::install_panic_hook("neo_win_pipes");
+
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let mode = parse_screensaver_args(&raw_args);
     let seed = parse_seed(&raw_args);
