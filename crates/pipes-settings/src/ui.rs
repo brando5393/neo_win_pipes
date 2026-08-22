@@ -196,10 +196,30 @@ pub fn draw(
                         .radio_value(
                             &mut config.monitor_mode,
                             MonitorMode::AllMonitors,
-                            "All displays (independent instance per screen)",
+                            "Independent per display (each screen its own scene)",
                         )
                         .changed();
                 });
+                ui.horizontal(|ui| {
+                    outcome.other_changed |= ui
+                        .radio_value(
+                            &mut config.monitor_mode,
+                            MonitorMode::Span,
+                            "One big screen (pipes travel across displays)",
+                        )
+                        .changed();
+                });
+                if config.monitor_mode == MonitorMode::Span {
+                    ui.label(
+                        RichText::new(
+                            "Works best with displays of the same resolution, arranged in \
+                             Windows' Display settings to match how they actually sit on your \
+                             desk.",
+                        )
+                        .weak()
+                        .small(),
+                    );
+                }
                 ui.horizontal(|ui| {
                     outcome.other_changed |= ui
                         .radio_value(

@@ -217,20 +217,23 @@ for the full writeup per platform.
       and is CI-verified to compile/lint clean, but still has no real
       display-server smoke test (no Linux machine with an X server/GPU);
       macOS is still blocked on the `.saver` code not existing at all.
-- [x] Multi-monitor behavior — decided in favor of independent per-display
-      instances (`MonitorMode::AllMonitors`, the default) over one canvas
-      spanning all displays, since spanning would need per-monitor
-      DPI/bezel-gap compensation this simulation has no way to reason
-      about; `MonitorMode::PrimaryOnly` is available for anyone who wants
-      the old single-display-only behavior. `pipes-app`'s `/s` mode now
-      enumerates `winit`'s `available_monitors()` and spawns one window +
-      renderer + `Scene` per display, each with a distinct-but-deterministic
-      seed (`seed_for_monitor`, unit-tested) so displays don't mirror each
-      other. Cross-platform in principle (the code is behind no
-      `cfg(windows)`), but only physically verified on this project's
-      single-monitor dev machine so far — the N>1 case is unit-tested
-      (seed derivation) and code-reviewed, not yet watched on real
-      multiple displays. See `docs/ARCHITECTURE.md#multi-monitor-behavior`.
+- [x] Multi-monitor behavior — three modes, a Pipes Settings toggle:
+      `MonitorMode::AllMonitors` (default, independent per-display
+      instances, each with a distinct-but-deterministic seed via
+      `seed_for_monitor`), `MonitorMode::Span` (one shared scene rendered
+      via an off-axis per-monitor tile projection, so pipes visually travel
+      from one display onto the next — see
+      `docs/ARCHITECTURE.md#multi-monitor-behavior` for the technique), and
+      `MonitorMode::PrimaryOnly` (the old single-display-only behavior).
+      `pipes-app`'s `/s` mode enumerates `winit`'s `available_monitors()`
+      and builds one window + renderer per display accordingly.
+      Cross-platform in principle (the code is behind no `cfg(windows)`),
+      but only physically verified on this project's single-monitor dev
+      machine so far — the tile-projection math itself is precisely
+      unit-tested (a full-canvas tile is numerically identical to the
+      ordinary symmetric projection; adjacent tiles are asserted to share
+      matching frustum boundaries), but the actual N>1-displays seam has
+      not been watched on real hardware.
 
 ## Phase 4 — Installable packages
 

@@ -29,10 +29,20 @@ window itself doesn't immediately count as input).
 With more than one display connected, `/s` mode spawns one independent
 screensaver instance per display by default — each with its own random
 scene, not a mirror of the others. Pipes Settings has a "Multi-monitor"
-toggle to switch to "Primary display only" instead, if you'd rather only
-one screen was active. See
-[ARCHITECTURE.md](ARCHITECTURE.md#multi-monitor-behavior) for how this
-decision was made.
+toggle with three options:
+
+- **Independent per display** (default) — each screen its own scene, as above.
+- **One big screen** — a single scene shared across every display, with
+  pipes visually traveling from one monitor onto the next instead of each
+  screen showing something unrelated. Works best with matching-resolution
+  displays arranged in your OS's display settings to match how they
+  actually sit on your desk.
+- **Primary display only** — just one screen renders; others are left
+  showing whatever was already on them.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md#multi-monitor-behavior) for how
+these were decided and how "one big screen" actually works under the
+hood.
 
 ## Testing the Windows screensaver contract directly
 

@@ -28,7 +28,7 @@ for, not just what seemed neat.
 
 ## Modern-platform expectations (not present in the original, but expected of anything shipping today)
 
-- ~~**Multi-monitor behavior that's actually configurable**~~ — **shipped**: `MonitorMode::AllMonitors` (default, one independent instance per display) vs. `MonitorMode::PrimaryOnly`, a Pipes Settings toggle under "Multi-monitor". Decided in favor of independent per-display instances over one spanning canvas — see `docs/ARCHITECTURE.md#multi-monitor-behavior` for the reasoning and `docs/ROADMAP.md` for the verification caveat (unit-tested and code-reviewed, not yet watched on real multiple displays).
+- ~~**Multi-monitor behavior that's actually configurable**~~ — **shipped**: a three-way Pipes Settings toggle under "Multi-monitor" — `MonitorMode::AllMonitors` (default, one independent instance per display), `MonitorMode::Span` (one shared scene, rendered via an off-axis per-monitor projection so pipes visually travel from one display onto the next), and `MonitorMode::PrimaryOnly`. See `docs/ARCHITECTURE.md#multi-monitor-behavior` for the tile-projection technique and `docs/ROADMAP.md` for the verification caveat (the projection math is precisely unit-tested; the actual seam hasn't been watched on real multiple displays).
 - **High-DPI correctness** — not found as an explicit complaint in research, but implied by "modern systems" in the project's original goal; worth a deliberate check once real displays are being tested against, not just assumed.
 
 ## Ideas not yet validated by outside sources (ours, lower confidence)

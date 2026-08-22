@@ -265,15 +265,11 @@ impl Renderer {
 
     /// `orbit_seconds` drives a slow camera drift around the scene (when
     /// `camera.orbit_enabled`), echoing the original screensaver's optional
-    /// rotation — see `docs/RESEARCH.md`. `viewport_wh` is the pixel size
-    /// of the region being rendered into (the full window, or a preview
-    /// pane's sub-rect), used for a correct (non-stretched) aspect ratio.
-    fn update_camera(
-        &self,
-        orbit_seconds: f32,
-        camera: &crate::config::CameraConfig,
-        viewport_wh: (u32, u32),
-    ) {
+    /// rotation — see `docs/RESEARCH.md`. Depends only on `self`/`camera`/
+    /// `orbit_seconds`, so every `Renderer` built from the same sim bounds
+    /// produces an identical view matrix — the property `MonitorMode::Span`
+    /// relies on to give every monitor's tile the same eye/target.
+    fn view_matrix(&self, orbit_seconds: f32, camera: &crate::config::CameraConfig) -> Mat4 {
         let angle = if camera.orbit_enabled {
             orbit_seconds * camera.orbit_speed
         } else {
@@ -285,11 +281,10 @@ impl Renderer {
                 self.scene_radius * 0.55,
                 angle.sin() * self.scene_radius,
             );
-        let view = Mat4::look_at_rh(eye, self.scene_center, Vec3::Y);
-        let (vw, vh) = viewport_wh;
-        let aspect = vw as f32 / vh.max(1) as f32;
-        let proj = Mat4::perspective_rh(45f32.to_radians(), aspect, 0.5, self.scene_radius * 6.0);
-        let view_proj = proj * view;
+        Mat4::look_at_rh(eye, self.scene_center, Vec3::Y)
+    }
+
+    fn write_camera_uniform(&self, view_proj: Mat4) {
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -297,6 +292,44 @@ impl Renderer {
                 view_proj: view_proj.to_cols_array_2d(),
             }]),
         );
+    }
+
+    /// `(fov_y_radians, near, far)` for this scene's ordinary symmetric
+    /// camera — the same three values a single, non-spanned window's
+    /// projection is built from. Exposed so a `MonitorMode::Span` caller
+    /// (`pipes-app`) can build a per-monitor
+    /// [`tile projection`](crate::tile::tile_projection) that describes the
+    /// exact same overall field of view, just sliced across displays,
+    /// instead of guessing/duplicating these constants.
+    pub fn frustum_params(&self) -> (f32, f32, f32) {
+        (45f32.to_radians(), 0.5, self.scene_radius * 6.0)
+    }
+
+    /// `viewport_wh` is the pixel size of the region being rendered into
+    /// (the full window, or a preview pane's sub-rect), used for a correct
+    /// (non-stretched) aspect ratio.
+    fn update_camera(
+        &self,
+        orbit_seconds: f32,
+        camera: &crate::config::CameraConfig,
+        viewport_wh: (u32, u32),
+    ) {
+        let view = self.view_matrix(orbit_seconds, camera);
+        let (fov_y, near, far) = self.frustum_params();
+        let (vw, vh) = viewport_wh;
+        let aspect = vw as f32 / vh.max(1) as f32;
+        let proj = Mat4::perspective_rh(fov_y, aspect, near, far);
+        self.write_camera_uniform(proj * view);
+    }
+
+    fn update_camera_with_projection(
+        &self,
+        orbit_seconds: f32,
+        camera: &crate::config::CameraConfig,
+        projection: Mat4,
+    ) {
+        let view = self.view_matrix(orbit_seconds, camera);
+        self.write_camera_uniform(projection * view);
     }
 
     /// Renders one frame. `viewport` is `(x, y, width, height)` in physical
@@ -313,6 +346,27 @@ impl Renderer {
         instances: &crate::instance::InstanceSets,
     ) -> Result<(), wgpu::SurfaceError> {
         self.render_with(orbit_seconds, camera, viewport, instances, |_, _, _, _| {})
+    }
+
+    /// Like [`Self::render`], but for `MonitorMode::Span`: `tile_projection`
+    /// is a pre-computed off-axis projection (see
+    /// [`crate::tile::tile_projection`]) for just this monitor's slice of
+    /// the full virtual desktop, used in place of the ordinary symmetric
+    /// projection `render`/`render_with` compute internally. Every monitor
+    /// sharing a span still gets the same view matrix (same orbiting eye —
+    /// see `view_matrix`), so tiles rendered this way reconstruct one
+    /// continuous wide scene when their windows sit edge to edge. Always
+    /// renders into the whole surface (`viewport: None`'s behavior) since
+    /// spanned mode has no reserved UI area to carve out.
+    pub fn render_tile(
+        &mut self,
+        orbit_seconds: f32,
+        camera: &crate::config::CameraConfig,
+        tile_projection: Mat4,
+        instances: &crate::instance::InstanceSets,
+    ) -> Result<(), wgpu::SurfaceError> {
+        self.update_camera_with_projection(orbit_seconds, camera, tile_projection);
+        self.draw_frame(None, instances, |_, _, _, _| {})
     }
 
     pub fn device(&self) -> &wgpu::Device {
@@ -341,8 +395,23 @@ impl Renderer {
         instances: &crate::instance::InstanceSets,
         extra: impl FnOnce(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView),
     ) -> Result<(), wgpu::SurfaceError> {
-        let (vx, vy, vw, vh) = viewport.unwrap_or((0, 0, self.config.width, self.config.height));
+        let (_, _, vw, vh) = viewport.unwrap_or((0, 0, self.config.width, self.config.height));
         self.update_camera(orbit_seconds, camera, (vw, vh));
+        self.draw_frame(viewport, instances, extra)
+    }
+
+    /// The actual GPU submission shared by [`Self::render_with`] and
+    /// [`Self::render_tile`] — everything downstream of "the camera uniform
+    /// is already written", so the two callers only differ in how they
+    /// compute that uniform (a symmetric projection from a viewport size,
+    /// vs. a pre-computed off-axis tile projection).
+    fn draw_frame(
+        &mut self,
+        viewport: Option<(u32, u32, u32, u32)>,
+        instances: &crate::instance::InstanceSets,
+        extra: impl FnOnce(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView),
+    ) -> Result<(), wgpu::SurfaceError> {
+        let (vx, vy, vw, vh) = viewport.unwrap_or((0, 0, self.config.width, self.config.height));
 
         let frame = self.surface.get_current_texture()?;
         let view = frame

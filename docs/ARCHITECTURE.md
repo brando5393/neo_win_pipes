@@ -140,8 +140,8 @@ inconsistently across the whole category, not something to inherit from
 whatever the naive per-OS default does.
 
 `AppConfig::monitor_mode` (`pipes_render::MonitorMode`, a Pipes Settings
-toggle under "Multi-monitor") picks between two behaviors, consulted only
-by `pipes-app`'s `/s` (fullscreen) mode — the live preview in Pipes
+toggle under "Multi-monitor") picks between three behaviors, consulted
+only by `pipes-app`'s `/s` (fullscreen) mode — the live preview in Pipes
 Settings and the `/p` thumbnail always render into one caller-provided
 window regardless of this setting:
 
@@ -155,35 +155,94 @@ window regardless of this setting:
   arbitrary large prime chosen only to spread seeds apart — so displays
   don't render identical mirrored scenes while a given `--seed` still
   reproduces the exact same multi-monitor run every time (determinism is
-  load-bearing project-wide). Chosen over one canvas spanning every
-  display because spanning would need per-monitor DPI/bezel-gap
-  compensation this simulation has no way to reason about — independent
-  instances is both simpler and matches how most real multi-monitor
-  screensaver implementations behave.
+  load-bearing project-wide).
+- **`Span`** — "pipes travel across displays": one *shared* `Scene`,
+  rendered as if every monitor were a tile of one big virtual screen. See
+  "Span mode: tile projections" below for how.
 - **`PrimaryOnly`** — today's pre-multi-monitor behavior: a single window,
   `Fullscreen::Borderless(None)` (whatever the OS/windowing system treats
   as current), for anyone who prefers only one display active.
 
-Both paths funnel into the same `Instance { window, renderer, scene,
-last_tick }` struct and the same event loop, keyed by a `HashMap<WindowId,
-usize>` built once at startup — `WindowEvent`s are dispatched to the
-instance that owns that `window_id`; any window's `CloseRequested` or (in
-`/s` mode, past the 750ms input-grace period) any keyboard/mouse/cursor
-event calls `elwt.exit()`, which tears down every window at once, matching
-how a real screensaver exits fully on any input regardless of which
-monitor received it. Each instance keeps its own `last_tick`, so every
-display's `Scene` steps on the same wall-clock cadence independently
-rather than being coupled to whichever window's redraw event happened to
-arrive first.
+`AllMonitors` and `Span` differ structurally, not just in a rendering
+flag, so `main.rs` models them as an enum built once at startup:
+
+```rust
+enum Rendering {
+    Independent(Vec<Instance>),        // AllMonitors: own window+renderer+Scene each
+    Span { windows: Vec<SpanWindow>, scene: Box<Scene>, last_tick: Instant },
+}
+```
+
+(`scene` is boxed purely to keep the enum's variants close in size —
+clippy's `large_enum_variant` lint — not for any semantic reason.) Both
+variants funnel into the same event loop, keyed by a `HashMap<WindowId,
+usize>` built once at startup from whichever variant is active —
+`WindowEvent`s are dispatched to the window/instance that owns that
+`window_id`; any window's `CloseRequested` or (in `/s` mode, past the
+750ms input-grace period) any keyboard/mouse/cursor event calls
+`elwt.exit()`, which tears down every window at once, matching how a real
+screensaver exits fully on any input regardless of which monitor received
+it.
+
+### Span mode: tile projections
+
+The trick (`pipes_render::tile` — the same principle behind physical
+multi-projector/tiled-display rigs, a generalization of Kooima's
+"Generalized Perspective Projection"): give every monitor's window the
+*same* view matrix (same orbiting eye/target — automatic here, since every
+`Renderer` derives its view purely from the shared sim bounds, so they're
+numerically identical by construction), but a **projection** matrix that
+only covers that monitor's own slice of one shared, wider frustum. Render
+each tile with its own slice and — since the windows sit on physically
+separate, edge-to-edge monitors — they reconstruct one continuous wide
+scene with no visible seam, entirely without a single surface spanning
+multiple windows or GPUs.
+
+Concretely: `pipes_render::tile::tile_projection(fov_y, near, far,
+canvas_wh, tile_rect)` builds an off-center ("asymmetric frustum")
+perspective matrix — the standard formula generalizing a symmetric
+`perspective_rh`, implemented by hand since `glam` has no off-center
+built-in (verified to reduce to `glam::Mat4::perspective_rh` exactly when
+the bounds are symmetric — see `tile.rs`'s tests). `main.rs`'s
+`virtual_canvas` computes the union bounding box of every monitor's
+`(position, size)` rect (winit's `MonitorHandle`, in physical pixels) —
+the "virtual canvas" — and translates each monitor's rect into that box's
+own local coordinate space; `Renderer::frustum_params()` supplies the same
+`(fov_y, near, far)` a single non-spanned window would use, so spanning
+changes how the field of view is *sliced*, never the field of view itself.
+Each window then renders via `Renderer::render_tile` (parallel to
+`render`/`render_with`, sharing their GPU submission code via a private
+`draw_frame` helper) instead of the ordinary symmetric-projection path.
+
+Only one `Scene` exists in `Span` mode, so it only steps once per
+`tick_interval` regardless of how many windows fire `RedrawRequested` in
+the same tick — gated on the `Rendering::Span` variant's single shared
+`last_tick`, not a per-window one (contrast `AllMonitors`, where each
+`Instance` keeps its own `last_tick` precisely because each has its own
+independent `Scene`).
+
+Geometric caveat, stated plainly rather than silently: this only looks
+seamless when the OS's virtual-desktop monitor arrangement (Windows
+Display Settings' drag-to-arrange, or the equivalent) matches physical
+reality, and works best with same-resolution/DPI displays — normal
+assumptions, not guaranteed ones. A mismatched arrangement just produces a
+differently-cropped view of the same wide scene, not a broken one; nothing
+about the underlying math depends on the assumption holding.
 
 **Verification status**: this project's only dev machine has a single
-monitor, so the `AllMonitors` path has been run for real and confirmed via
-its own log output (`multi-monitor: spawning one independent instance per
-display count=1`, then a successful `scene created`/`window(s) opened`)
-and the `PrimaryOnly` path separately (no such log line, single instance) —
-but the actual N>1-displays case is unit-tested (`seed_for_monitor`) and
-code-reviewed only, not watched on real multiple monitors. Same honesty
-convention as the Linux X11 verification gap elsewhere in this doc.
+monitor, so all three modes have been run for real and confirmed via their
+own log output (`multi-monitor: spawning one independent instance per
+display count=1` / `multi-monitor: spanning one shared scene across every
+display count=1` / neither line + a single instance, respectively) — each
+producing a successful `scene created`/`window(s) opened` with no crash.
+The tile-projection math itself is unit-tested precisely (not just
+code-reviewed): a tile covering the *whole* virtual canvas is asserted
+numerically identical to the ordinary symmetric projection (the exact
+single-monitor case), and adjacent tiles are asserted to share matching
+frustum boundaries (the geometric definition of "no seam") — see
+`tile.rs`'s tests. What hasn't been done is watching Span mode's actual
+seam on real multiple displays; same honesty convention as the Linux X11
+verification gap elsewhere in this doc.
 
 ## `pipes-settings`
 

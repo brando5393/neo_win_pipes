@@ -35,20 +35,35 @@ impl Default for CameraConfig {
 /// How the screensaver behaves when more than one display is connected.
 /// Flagged in `docs/ROADMAP.md`/`docs/FEATURE_IDEAS.md` as a deliberate
 /// decision every multi-monitor-aware screensaver has to make rather than
-/// inheriting whatever the naive per-OS default does — this project's
-/// choice is independent per-display instances, not one canvas stretched
-/// across bezels (which would need per-monitor DPI/gap compensation this
-/// simulation has no way to reason about). Only consulted by `pipes-app`'s
-/// `/s` (fullscreen) mode; the live preview in Pipes Settings and the `/p`
-/// thumbnail always render into a single caller-provided window regardless
-/// of this setting.
+/// inheriting whatever the naive per-OS default does. Only consulted by
+/// `pipes-app`'s `/s` (fullscreen) mode; the live preview in Pipes Settings
+/// and the `/p` thumbnail always render into a single caller-provided
+/// window regardless of this setting.
+///
+/// Variant names are serialized into `config.toml` — renaming one silently
+/// breaks every existing saved config with that mode selected (the whole
+/// file fails to parse and falls back to full defaults, per
+/// `AppConfig::load_from`), so treat them as a stable format, not just an
+/// implementation detail, once shipped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MonitorMode {
     /// One independent simulation instance per connected display, each
     /// seeded differently so displays don't render identical mirrored
-    /// scenes.
+    /// scenes. The original (and still default) multi-monitor behavior —
+    /// see `docs/ARCHITECTURE.md#multi-monitor-behavior`.
     #[default]
     AllMonitors,
+    /// One shared simulation, rendered as if every display were tiles of
+    /// one big virtual screen: pipes visually travel from one monitor onto
+    /// the next instead of each display showing its own independent scene.
+    /// Implemented via an off-axis ("asymmetric frustum") projection per
+    /// monitor — see `docs/ARCHITECTURE.md#multi-monitor-behavior` for why
+    /// that's the right tool here rather than one giant rendered surface.
+    /// Only geometrically seamless when the OS's virtual-desktop monitor
+    /// arrangement matches physical reality (normal, but not guaranteed)
+    /// and monitors share a resolution/DPI; mismatched setups just look
+    /// like differently-cropped views of the same wide scene, not broken.
+    Span,
     /// Only the display the OS/windowing system considers primary
     /// renders; other displays are left showing whatever was already on
     /// them. Matches the original screensaver's single-display-only

@@ -26,8 +26,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use glam::Mat4;
 use pipes_core::{Scene, SceneEvent};
-use pipes_render::{build_instances, AppConfig, MonitorMode, Renderer};
+use pipes_render::{build_instances, tile_projection, AppConfig, MonitorMode, Renderer};
 use screensaver_args::{parse_screensaver_args, ScreensaverMode};
 use tracing::info;
 use winit::dpi::LogicalSize;
@@ -55,6 +56,49 @@ fn seed_for_monitor(base_seed: u64, index: usize) -> u64 {
     base_seed.wrapping_add(index as u64 * 104_729)
 }
 
+/// `(x, y, width, height)` in physical pixels, winit's `MonitorHandle`
+/// convention — Y grows downward, position can be negative for a monitor
+/// arranged left of or above the primary display.
+type PixelRect = (i32, i32, u32, u32);
+/// `(x, y, width, height)`, same shape as [`PixelRect`] but `f32` — the
+/// units a computed tile projection expects (see
+/// `pipes_render::tile::tile_projection`).
+type Rect = (f32, f32, f32, f32);
+
+/// The union bounding box of every monitor's rect — the `MonitorMode::Span`
+/// virtual canvas — plus each monitor's own rect translated into that box's
+/// local coordinate space (so the box's own origin is always `(0, 0)`, and
+/// tiles never need negative coordinates even when a monitor sits to the
+/// left of or above the primary display in the OS's arrangement). Returns
+/// `(canvas_width, canvas_height)` and one `(x, y, width, height)` tile per
+/// input rect, same order in, same order out.
+///
+/// Takes plain `(x, y, width, height)` rects rather than
+/// `winit::monitor::MonitorHandle` directly — `MonitorHandle` has no public
+/// constructor and can't be built in a unit test without a live windowing
+/// system, so the actual layout math is kept independent of it and callers
+/// translate real monitors into rects at the call site.
+fn virtual_canvas(rects: &[PixelRect]) -> ((f32, f32), Vec<Rect>) {
+    let min_x = rects.iter().map(|&(x, _, _, _)| x).min().unwrap_or(0);
+    let min_y = rects.iter().map(|&(_, y, _, _)| y).min().unwrap_or(0);
+    let max_x = rects
+        .iter()
+        .map(|&(x, _, w, _)| x + w as i32)
+        .max()
+        .unwrap_or(0);
+    let max_y = rects
+        .iter()
+        .map(|&(_, y, _, h)| y + h as i32)
+        .max()
+        .unwrap_or(0);
+    let canvas = ((max_x - min_x).max(1) as f32, (max_y - min_y).max(1) as f32);
+    let tiles = rects
+        .iter()
+        .map(|&(x, y, w, h)| ((x - min_x) as f32, (y - min_y) as f32, w as f32, h as f32))
+        .collect();
+    (canvas, tiles)
+}
+
 /// Builds one borderless window: fullscreen on `monitor` for
 /// `ScreensaverMode::Show` (`None` lets the OS pick, used for the
 /// single-instance fallback path), or a small fixed-size window otherwise
@@ -79,15 +123,81 @@ fn build_window(
     Arc::new(builder.build(event_loop).expect("failed to create window"))
 }
 
-/// One monitor's worth of screensaver state: its own window, GPU renderer,
-/// and simulation — see the module doc on `pipes_render::MonitorMode` for
-/// why each display gets an independent instance rather than one canvas
-/// spanning all of them.
+/// One monitor's worth of screensaver state under `MonitorMode::AllMonitors`:
+/// its own window, GPU renderer, and independent simulation.
 struct Instance {
     window: Arc<Window>,
     renderer: Renderer,
     scene: Scene,
     last_tick: Instant,
+}
+
+/// One monitor's worth of screensaver state under `MonitorMode::Span`: its
+/// own window and GPU renderer, but no `Scene` of its own — every window
+/// shares one `Scene` (see [`Rendering::Span`]) and only differs in
+/// `tile_projection`, its slice of that shared scene's virtual canvas.
+struct SpanWindow {
+    window: Arc<Window>,
+    renderer: Renderer,
+    tile_projection: Mat4,
+}
+
+/// The two shapes multi-monitor rendering can take, dispatched on once at
+/// startup from `AppConfig::monitor_mode` — see
+/// `docs/ARCHITECTURE.md#multi-monitor-behavior` for why these differ
+/// structurally (independent scenes vs. one shared scene) rather than just
+/// being a rendering-only switch.
+enum Rendering {
+    Independent(Vec<Instance>),
+    Span {
+        windows: Vec<SpanWindow>,
+        // Boxed so this variant isn't dramatically larger than
+        // `Independent`'s (a bare `Scene` would make every `Rendering`
+        // value pay for the biggest variant's size, per clippy's
+        // large_enum_variant lint) — otherwise no different from an
+        // unboxed field.
+        scene: Box<Scene>,
+        last_tick: Instant,
+    },
+}
+
+impl Rendering {
+    fn window_ids(&self) -> HashMap<WindowId, usize> {
+        match self {
+            Rendering::Independent(instances) => instances
+                .iter()
+                .enumerate()
+                .map(|(i, inst)| (inst.window.id(), i))
+                .collect(),
+            Rendering::Span { windows, .. } => windows
+                .iter()
+                .enumerate()
+                .map(|(i, w)| (w.window.id(), i))
+                .collect(),
+        }
+    }
+
+    fn request_redraw_all(&self) {
+        match self {
+            Rendering::Independent(instances) => {
+                for inst in instances {
+                    inst.window.request_redraw();
+                }
+            }
+            Rendering::Span { windows, .. } => {
+                for w in windows {
+                    w.window.request_redraw();
+                }
+            }
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Rendering::Independent(instances) => instances.len(),
+            Rendering::Span { windows, .. } => windows.len(),
+        }
+    }
 }
 
 fn parse_seed(args: &[String]) -> u64 {
@@ -197,15 +307,19 @@ fn main() {
     // the /c settings-launch path already returned above, and /p's preview
     // thumbnail and configure-mode both render into one caller-provided or
     // small dev window regardless of how many displays exist.
-    let monitors: Vec<MonitorHandle> =
-        if mode == ScreensaverMode::Show && app_config.monitor_mode == MonitorMode::AllMonitors {
-            event_loop.available_monitors().collect()
-        } else {
-            Vec::new()
-        };
+    let monitors: Vec<MonitorHandle> = if mode == ScreensaverMode::Show
+        && matches!(
+            app_config.monitor_mode,
+            MonitorMode::AllMonitors | MonitorMode::Span
+        ) {
+        event_loop.available_monitors().collect()
+    } else {
+        Vec::new()
+    };
 
-    let mut instances = Vec::new();
-    if monitors.is_empty() {
+    let mut rendering = if monitors.is_empty() {
+        // PrimaryOnly, or /p's preview thumbnail, or /c-adjacent dev
+        // testing — a single window regardless of how many displays exist.
         let window = build_window(&event_loop, mode, None);
         if mode == ScreensaverMode::Show {
             window.set_cursor_visible(false);
@@ -226,17 +340,61 @@ fn main() {
             bounds,
         ));
         let scene = Scene::new(app_config.sim.clone(), seed);
-        instances.push(Instance {
+        Rendering::Independent(vec![Instance {
             window,
             renderer,
             scene,
             last_tick: Instant::now(),
-        });
+        }])
+    } else if app_config.monitor_mode == MonitorMode::Span {
+        info!(
+            count = monitors.len(),
+            "multi-monitor: spanning one shared scene across every display"
+        );
+        let rects: Vec<(i32, i32, u32, u32)> = monitors
+            .iter()
+            .map(|m| {
+                let pos = m.position();
+                let size = m.size();
+                (pos.x, pos.y, size.width, size.height)
+            })
+            .collect();
+        let (canvas_wh, tiles) = virtual_canvas(&rects);
+        let mut windows = Vec::new();
+        // Built once, from the first window: every Renderer shares the
+        // same sim bounds, so `frustum_params()` (derived purely from
+        // those bounds) is identical no matter which one supplies it.
+        let mut frustum_params = None;
+        for (monitor, tile_rect) in monitors.into_iter().zip(tiles) {
+            let window = build_window(&event_loop, mode, Some(monitor));
+            window.set_cursor_visible(false);
+            let window_size = window.inner_size();
+            let renderer = pollster::block_on(Renderer::new(
+                window.clone(),
+                (window_size.width, window_size.height),
+                bounds,
+            ));
+            let (fov_y, near, far) =
+                *frustum_params.get_or_insert_with(|| renderer.frustum_params());
+            let projection = tile_projection(fov_y, near, far, canvas_wh, tile_rect);
+            windows.push(SpanWindow {
+                window,
+                renderer,
+                tile_projection: projection,
+            });
+        }
+        let scene = Box::new(Scene::new(app_config.sim.clone(), seed));
+        Rendering::Span {
+            windows,
+            scene,
+            last_tick: Instant::now(),
+        }
     } else {
         info!(
             count = monitors.len(),
             "multi-monitor: spawning one independent instance per display"
         );
+        let mut instances = Vec::new();
         for (i, monitor) in monitors.into_iter().enumerate() {
             let window = build_window(&event_loop, mode, Some(monitor));
             window.set_cursor_visible(false);
@@ -254,16 +412,13 @@ fn main() {
                 last_tick: Instant::now(),
             });
         }
-    }
-    let window_ids: HashMap<WindowId, usize> = instances
-        .iter()
-        .enumerate()
-        .map(|(i, inst)| (inst.window.id(), i))
-        .collect();
+        Rendering::Independent(instances)
+    };
+    let window_ids = rendering.window_ids();
 
     info!(
         seed,
-        instances = instances.len(),
+        instances = rendering.len(),
         "neo_win_pipes window(s) opened"
     );
     let start = Instant::now();
@@ -285,51 +440,111 @@ fn main() {
                 let Some(&idx) = window_ids.get(&window_id) else {
                     return;
                 };
-                let inst = &mut instances[idx];
-                match event {
-                    WindowEvent::CloseRequested => elwt.exit(),
-                    WindowEvent::KeyboardInput { .. } if exit_on_input_now(start) => elwt.exit(),
+                // Exit conditions don't depend on which Rendering variant is
+                // active, so they're checked once up front rather than
+                // duplicated in both branches below.
+                match &event {
+                    WindowEvent::CloseRequested => return elwt.exit(),
+                    WindowEvent::KeyboardInput { .. } if exit_on_input_now(start) => {
+                        return elwt.exit()
+                    }
                     WindowEvent::MouseInput {
                         state: ElementState::Pressed,
                         ..
-                    } if exit_on_input_now(start) => elwt.exit(),
-                    WindowEvent::CursorMoved { .. } if exit_on_input_now(start) => elwt.exit(),
-                    WindowEvent::Resized(size) => inst.renderer.resize(size.width, size.height),
-                    WindowEvent::RedrawRequested => {
-                        if inst.last_tick.elapsed() >= tick_interval {
-                            inst.last_tick = Instant::now();
-                            for event in inst.scene.step() {
-                                if event == SceneEvent::SceneReset {
-                                    info!("scene reset — restarting");
-                                }
-                            }
-                        }
-
-                        let sets = build_instances(&inst.scene, &app_config.visuals);
-                        let orbit_seconds = start.elapsed().as_secs_f32();
-                        if let Err(err) =
-                            inst.renderer
-                                .render(orbit_seconds, &app_config.camera, None, &sets)
-                        {
-                            match err {
-                                wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
-                                    let size = inst.window.inner_size();
-                                    inst.renderer.resize(size.width, size.height);
-                                }
-                                wgpu::SurfaceError::OutOfMemory => elwt.exit(),
-                                wgpu::SurfaceError::Timeout => {}
-                            }
-                        }
-                        inst.window.request_redraw();
+                    } if exit_on_input_now(start) => return elwt.exit(),
+                    WindowEvent::CursorMoved { .. } if exit_on_input_now(start) => {
+                        return elwt.exit()
                     }
                     _ => {}
                 }
-            }
-            Event::AboutToWait => {
-                for inst in &instances {
-                    inst.window.request_redraw();
+                match &mut rendering {
+                    Rendering::Independent(instances) => {
+                        let inst = &mut instances[idx];
+                        match event {
+                            WindowEvent::Resized(size) => {
+                                inst.renderer.resize(size.width, size.height)
+                            }
+                            WindowEvent::RedrawRequested => {
+                                if inst.last_tick.elapsed() >= tick_interval {
+                                    inst.last_tick = Instant::now();
+                                    for event in inst.scene.step() {
+                                        if event == SceneEvent::SceneReset {
+                                            info!("scene reset — restarting");
+                                        }
+                                    }
+                                }
+
+                                let sets = build_instances(&inst.scene, &app_config.visuals);
+                                let orbit_seconds = start.elapsed().as_secs_f32();
+                                if let Err(err) = inst.renderer.render(
+                                    orbit_seconds,
+                                    &app_config.camera,
+                                    None,
+                                    &sets,
+                                ) {
+                                    match err {
+                                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+                                            let size = inst.window.inner_size();
+                                            inst.renderer.resize(size.width, size.height);
+                                        }
+                                        wgpu::SurfaceError::OutOfMemory => elwt.exit(),
+                                        wgpu::SurfaceError::Timeout => {}
+                                    }
+                                }
+                                inst.window.request_redraw();
+                            }
+                            _ => {}
+                        }
+                    }
+                    Rendering::Span {
+                        windows,
+                        scene,
+                        last_tick,
+                    } => {
+                        let win = &mut windows[idx];
+                        match event {
+                            WindowEvent::Resized(size) => {
+                                win.renderer.resize(size.width, size.height)
+                            }
+                            WindowEvent::RedrawRequested => {
+                                // Gated on one shared `last_tick`, not a
+                                // per-window one: there's only one Scene, so
+                                // it must step once per tick_interval total,
+                                // not once per window's own redraw cadence.
+                                if last_tick.elapsed() >= tick_interval {
+                                    *last_tick = Instant::now();
+                                    for event in scene.step() {
+                                        if event == SceneEvent::SceneReset {
+                                            info!("scene reset — restarting");
+                                        }
+                                    }
+                                }
+
+                                let sets = build_instances(scene, &app_config.visuals);
+                                let orbit_seconds = start.elapsed().as_secs_f32();
+                                if let Err(err) = win.renderer.render_tile(
+                                    orbit_seconds,
+                                    &app_config.camera,
+                                    win.tile_projection,
+                                    &sets,
+                                ) {
+                                    match err {
+                                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+                                            let size = win.window.inner_size();
+                                            win.renderer.resize(size.width, size.height);
+                                        }
+                                        wgpu::SurfaceError::OutOfMemory => elwt.exit(),
+                                        wgpu::SurfaceError::Timeout => {}
+                                    }
+                                }
+                                win.window.request_redraw();
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
+            Event::AboutToWait => rendering.request_redraw_all(),
             _ => {}
         })
         .expect("event loop error");
@@ -363,5 +578,36 @@ mod tests {
     #[test]
     fn seed_for_monitor_is_deterministic() {
         assert_eq!(seed_for_monitor(42, 2), seed_for_monitor(42, 2));
+    }
+
+    #[test]
+    fn virtual_canvas_places_two_side_by_side_monitors_edge_to_edge() {
+        let rects = [(0, 0, 1920, 1080), (1920, 0, 1920, 1080)];
+        let (canvas, tiles) = virtual_canvas(&rects);
+        assert_eq!(canvas, (3840.0, 1080.0));
+        assert_eq!(
+            tiles,
+            vec![(0.0, 0.0, 1920.0, 1080.0), (1920.0, 0.0, 1920.0, 1080.0)]
+        );
+    }
+
+    #[test]
+    fn virtual_canvas_handles_a_monitor_arranged_to_the_left_of_the_primary() {
+        // A secondary display placed to the left of (0,0) in the OS's
+        // arrangement has negative x — tiles must still come out
+        // non-negative, translated into the canvas's own local origin.
+        let rects = [(0, 0, 1920, 1080), (-1280, 0, 1280, 1080)];
+        let (canvas, tiles) = virtual_canvas(&rects);
+        assert_eq!(canvas, (3200.0, 1080.0));
+        assert_eq!(tiles[0], (1280.0, 0.0, 1920.0, 1080.0));
+        assert_eq!(tiles[1], (0.0, 0.0, 1280.0, 1080.0));
+    }
+
+    #[test]
+    fn virtual_canvas_of_a_single_monitor_is_just_that_monitor() {
+        let rects = [(0, 0, 2560, 1440)];
+        let (canvas, tiles) = virtual_canvas(&rects);
+        assert_eq!(canvas, (2560.0, 1440.0));
+        assert_eq!(tiles, vec![(0.0, 0.0, 2560.0, 1440.0)]);
     }
 }

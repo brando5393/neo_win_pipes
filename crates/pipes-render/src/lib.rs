@@ -8,10 +8,12 @@ pub mod diagnostics;
 pub mod geometry;
 pub mod instance;
 pub mod renderer;
+pub mod tile;
 
 pub use config::{AppConfig, CameraConfig, MonitorMode};
 pub use instance::{build_instances, InstanceRaw, InstanceSets, PipeVisuals};
 pub use renderer::Renderer;
+pub use tile::tile_projection;
 
 /// Re-exported so callers building a non-winit window target (e.g.
 /// `pipes-xscreensaver`'s raw X11 handle) can implement the traits

@@ -1932,6 +1932,7 @@ dependencies = [
 name = "pipes-app"
 version = "0.1.0"
 dependencies = [
+ "glam",
  "pipes-core",
  "pipes-render",
  "pollster",

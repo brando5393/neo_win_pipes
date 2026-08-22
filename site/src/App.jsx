@@ -34,7 +34,7 @@ const FEATURES = [
   {
     icon: Monitor,
     title: 'Multi-monitor, done properly',
-    body: 'With more than one display connected, each screen gets its own independent scene by default — not a mirrored copy. A settings toggle switches to primary-display-only if you\'d rather only one screen was active.',
+    body: 'Each screen gets its own independent scene by default — not a mirrored copy. Prefer one continuous scene instead? A "One big screen" mode shares a single simulation across every display, with pipes visually traveling from one monitor onto the next.',
   },
 ]
 
