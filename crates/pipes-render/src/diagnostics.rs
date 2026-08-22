@@ -141,10 +141,17 @@ fn to_wide(s: &str) -> Vec<u16> {
 }
 
 #[cfg(not(windows))]
-fn show_fatal_error_dialog(_app_name: &str, _message: &str) {
+fn show_fatal_error_dialog(app_name: &str, message: &str) {
     // No native dialog on other platforms yet — Phase 4 is Windows-only
-    // (see CLAUDE.md). The panic is still logged to stderr (default hook)
-    // and to the file log above.
+    // (see CLAUDE.md). Still builds and logs the same dialog text a real
+    // dialog would show (rather than leaving fatal_error_dialog_body
+    // Windows-only dead code here), so it's ready to wire into an actual
+    // dialog crate later. The panic is also already logged to stderr
+    // (default hook) and to the file log above.
+    tracing::debug!(
+        dialog_text = %fatal_error_dialog_body(app_name, message),
+        "no native dialog on this platform yet"
+    );
 }
 
 #[cfg(test)]
