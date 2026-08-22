@@ -2,9 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// base must match the GitHub Pages project-page path (https://brando5393.github.io/neo_win_pipes/)
-// — a plain "/" here would 404 every asset once deployed, since this isn't served from the domain root.
+// base is "/" because this is served from the custom domain's root
+// (neowinpipes.com/public/CNAME), not the github.io/neo_win_pipes/ project-page
+// path — go back to '/neo_win_pipes/' if the custom domain is ever removed.
 export default defineConfig({
-  base: '/neo_win_pipes/',
+  base: '/',
   plugins: [react(), tailwindcss()],
 })
