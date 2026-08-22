@@ -159,6 +159,33 @@ thickness, camera, speed; takes effect next frame with no rebuild), plus
 `reset_to_defaults` for the drawer's reset button. `main.rs` acts on
 `Outcome` and autosaves `AppConfig` on any change.
 
+### Feedback popup ("Report Issue / Feedback…")
+
+A floating (not a dimmed/blocking modal — the rest of the UI stays
+interactive behind it) `egui::Window`, opened from a button in the
+drawer: category (Bug/Feature request/Question — sets the issue's real
+GitHub label via `labels=`, never mangled into the title as text),
+separate title + description fields (mirroring GitHub's own issue form,
+not one combined text box), and — for Bug only — an on-by-default,
+visible "include recent log output" checkbox (see
+[LOGGING.md](LOGGING.md) for where that log file lives). Submitting
+builds a pre-filled `github.com/.../issues/new` URL and opens it via
+`ShellExecuteW` directly (Windows) — deliberately not `cmd /c start`,
+which re-parses its command tail through cmd.exe's own shell grammar and
+silently truncates any URL at the first `&` (every one of these URLs has
+one, at its first query-string separator — a real bug, found by actually
+clicking through a generated link, not by reading the code). No account
+or token on our end: the person reporting still submits it themselves
+once the browser opens.
+
+Log inclusion runs through a best-effort sanitizer that redacts the
+current user's home directory path — including the double-backslash
+form `tracing`'s `{:?}` (Debug) formatting produces on Windows, which is
+what real log lines actually contain and is easy to miss (a sanitizer
+that only replaces the raw single-backslash form silently redacts
+nothing, with no error to notice — this shipped broken once already for
+exactly that reason).
+
 ## Native screensaver wrappers (Phase 3)
 
 Each OS has a different screensaver contract. Status differs sharply by
@@ -380,6 +407,31 @@ had to build from scratch.
   rendering code above — nobody has installed either package on a real
   machine and watched `xscreensaver-demo` list/run "Neo Pipes", or run
   the AppImage and watched a window render.
+
+## Splash site (`site/`)
+
+A React + Vite + Tailwind CSS v4 landing page, entirely separate from
+the Cargo workspace (its own `package.json`/`node_modules`, gitignored) —
+deployed to GitHub Pages at the custom domain **neowinpipes.com**
+(`site/public/CNAME`; DNS is four `A` + four `AAAA` records at the apex
+pointing at GitHub Pages' fixed IPs, plus a `www` `CNAME` to
+`brando5393.github.io`, all in a Route 53 hosted zone). `.github/
+workflows/deploy-pages.yml` builds and deploys on every push to `main`
+that touches `site/**`, via `actions/upload-pages-artifact` +
+`actions/deploy-pages` (Pages itself is configured with
+`build_type=workflow` via the GitHub API, not the legacy branch-based
+source).
+
+Download buttons fetch `api.github.com/repos/.../releases/latest`
+client-side and match assets by file extension, rather than
+hardcoding filenames — the `.deb`/AppImage names embed the version
+number, so a static link would go stale every release.
+
+**This needs to stay in sync with real project changes by hand** — it's
+a separate static site, not generated from `docs/*.md` or the wiki, so a
+shipped feature worth mentioning to an end user (the feedback popup,
+a new platform going from unverified to confirmed-working, etc.) doesn't
+appear here automatically. See `docs/DEVELOPMENT.md`'s conventions list.
 
 ## Auto-update (`pipes-settings::update`)
 

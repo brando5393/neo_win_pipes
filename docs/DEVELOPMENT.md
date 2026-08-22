@@ -227,6 +227,14 @@ copies.
 - Every new logged event gets a row in [`docs/LOGGING.md`](LOGGING.md) in
   the same change.
 - Keep `docs/ROADMAP.md` checkboxes in sync with what actually shipped.
+- **When a change is genuinely user-facing** (a new feature someone would
+  actually notice, a platform going from unverified to confirmed-working,
+  a new install method) **check whether `site/` (the neowinpipes.com
+  splash page) needs a corresponding update.** It's a hand-maintained
+  static site, not generated from these docs or the wiki — nothing keeps
+  it in sync automatically. Not every change needs this (an internal
+  refactor or a bug fix usually doesn't); use judgment, but check rather
+  than assume it's someone else's job.
 - No `--no-verify`, no skipped hooks, no force-pushing shared branches.
 
 ## Where things live

@@ -21,6 +21,10 @@ const FEATURES = [
     title: 'Live-preview settings',
     body: 'Pipes Settings shows the simulation running right next to every slider — pipe count, speed, style, palette, grid size — so you see exactly what you’re about to set as your screensaver.',
   },
+  {
+    title: 'Report a bug in two clicks',
+    body: 'A "Report Issue / Feedback…" button right in the settings drawer opens a pre-filled GitHub issue — category, title, description, and (optionally) recent log output, with your home directory path redacted first.',
+  },
 ]
 
 const STATUS = [

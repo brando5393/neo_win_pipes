@@ -109,6 +109,13 @@ change, not just the initial scaffold:
    milliseconds because window creation itself fires a synthetic
    `CursorMoved`. Compiling and passing `cargo test` is necessary, not
    sufficient, for anything involving a window, an event loop, or Win32.
+9. **Check whether `site/` (the neowinpipes.com splash page) needs
+   updating** whenever a change is genuinely user-facing — a new feature,
+   a platform going from unverified to confirmed-working, a new install
+   method. It's a hand-maintained static site, not generated from these
+   docs or the wiki, so nothing keeps it in sync automatically. Use
+   judgment (an internal refactor doesn't need this); the point is to
+   check, not to update it reflexively for everything.
 
 ## Where to look
 
@@ -121,3 +128,4 @@ change, not just the initial scaffold:
 | How do I build/test/contribute? | `docs/DEVELOPMENT.md` |
 | How do I run what exists today? | `docs/USAGE.md` |
 | What do the logs mean? | `docs/LOGGING.md` |
+| What does the public splash site look like/say? | `site/` (deployed at neowinpipes.com) |

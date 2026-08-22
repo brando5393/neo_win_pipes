@@ -93,6 +93,17 @@ The config file lives at the OS's standard per-user config location (e.g.
 shape if you want to hand-edit it (it's validated/clamped on load either
 way, so a bad edit can't break the app).
 
+### Reporting a bug or requesting a feature
+
+Click **Report Issue / Feedback…** in the drawer to open a small popup:
+pick a category (Bug/Feature request/Question), fill in a title and
+description, and — for Bug — optionally include recent log output (your
+home directory path is redacted first, best-effort). Submitting opens a
+pre-filled GitHub issue in your browser with the category already
+applied as a label; you still need a GitHub account to actually submit
+it there. Nothing is sent anywhere until you click "Submit new issue" on
+that page.
+
 ### Update notifications
 
 Pipes Settings checks GitHub for a newer release in the background each
