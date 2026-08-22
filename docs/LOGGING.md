@@ -92,12 +92,17 @@ Both `pipes-app` and `pipes-settings` call the same
 
 `pipes_render::diagnostics::install_panic_hook()` also runs at startup in
 both binaries: on an unhandled panic it still runs Rust's default hook
-(so a debug-build console shows the usual backtrace), logs the panic
-through `tracing` (so it lands in the file above too), and — on Windows —
-shows a native `MessageBoxW` dialog with a plain-English summary, so a
-real user sees "something went wrong" instead of the window just
-vanishing. There's no dialog on macOS/Linux yet (Phase 4 is Windows-only
-— see `CLAUDE.md`); the panic is still logged both ways there.
+(so a debug-build console shows the usual backtrace), logs the raw panic
+message and location through `tracing` (so the exact technical detail
+lands in the file above too), and — on Windows — shows a native
+`MessageBoxW` dialog with three distinct parts, not just the raw error
+dumped at the user: a plain-English explanation sentence a non-programmer
+can act on, a pointer to the log file's *actual resolved path* (not a
+repo doc — a real installed user has no `docs/` folder to read), and the
+raw technical detail underneath so it can be copied straight into a bug
+report without having to go find the log file at all. There's no dialog
+on macOS/Linux yet (Phase 4 is Windows-only — see `CLAUDE.md`); the panic
+is still logged both ways there.
 
 ## Design rule for new events
 

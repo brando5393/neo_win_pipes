@@ -95,16 +95,33 @@ fn panic_message(info: &std::panic::PanicHookInfo<'_>) -> String {
     }
 }
 
+/// Builds the dialog body: a plain-English explanation a non-programmer
+/// can act on, a *real, resolved* pointer to where the log file actually
+/// lives (not a repo doc path — a real installed user has no `docs/`
+/// folder to look in), and the raw technical detail underneath so anyone
+/// filing a bug report can just copy it straight out of the dialog
+/// instead of having to go find the log file at all.
+fn fatal_error_dialog_body(app_name: &str, technical_detail: &str) -> String {
+    let log_hint = match log_dir() {
+        Some(dir) => format!(
+            "A detailed error report was saved under:\n{}",
+            dir.display()
+        ),
+        None => "A detailed error report was written to the log.".to_string(),
+    };
+    format!(
+        "{app_name} ran into a problem it couldn't recover from and needs to close.\n\n\
+         {log_hint}\n\n\
+         Technical details:\n{technical_detail}"
+    )
+}
+
 #[cfg(windows)]
 fn show_fatal_error_dialog(app_name: &str, message: &str) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
     let title = to_wide(&format!("{app_name} - unexpected error"));
-    let body = to_wide(&format!(
-        "{app_name} hit an unexpected error and needs to close.\n\n\
-         {message}\n\n\
-         Details were written to the log file (see docs/LOGGING.md)."
-    ));
+    let body = to_wide(&fatal_error_dialog_body(app_name, message));
     // SAFETY: both buffers are NUL-terminated UTF-16 owned by this
     // function's stack and outlive the call; hwnd=null targets no
     // particular window, which is valid for MessageBoxW.
@@ -140,6 +157,21 @@ mod tests {
         let dir_str = dir.to_string_lossy();
         assert!(dir_str.contains("neo_win_pipes"));
         assert!(dir_str.ends_with("logs"));
+    }
+
+    #[test]
+    fn dialog_body_has_a_plain_english_explanation_a_real_log_path_and_the_raw_error() {
+        let body = fatal_error_dialog_body("Pipes Settings", "index out of bounds: len 3, index 5");
+        // A non-programmer needs a sentence that isn't just the raw error.
+        assert!(body.contains("ran into a problem it couldn't recover from"));
+        // Must point at a real, resolved filesystem path — not a repo doc
+        // path a real installed user has no way to open.
+        assert!(!body.contains("docs/LOGGING.md"));
+        let dir = log_dir().unwrap();
+        assert!(body.contains(&*dir.to_string_lossy()));
+        // The raw technical detail must still be present, not just summarized
+        // away, so it can be copied straight into a bug report.
+        assert!(body.contains("index out of bounds: len 3, index 5"));
     }
 
     #[test]
