@@ -73,6 +73,10 @@ fn main() {
     info!(config_path = ?AppConfig::config_path(), "loaded AppConfig (or defaults if missing)");
 
     let event_loop = EventLoop::new().expect("failed to create event loop");
+    // `mut` is only needed inside the cfg(windows) block below - on other
+    // platforms nothing ever reassigns builder, so clippy flags it as
+    // unused there.
+    #[allow(unused_mut)]
     let mut builder = WindowBuilder::new()
         .with_title("Pipes Settings")
         .with_window_icon(pipes_render::app_icon::window_icon())
