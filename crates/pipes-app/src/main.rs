@@ -5,10 +5,17 @@
 //! `/c` to open the settings app, `/p <hwnd>` to render a live preview
 //! into an existing window (what Windows does for the thumbnail in
 //! Settings' screensaver dropdown). With no recognized flag (e.g. plain
-//! `cargo run -p pipes-app -- --seed 1`), behaves like `/s` for local
-//! testing. Press Escape or close the window to quit in any mode; in `/s`
-//! mode, any key press, click, or mouse movement also quits, matching how
-//! every real screensaver behaves.
+//! `cargo run -p pipes-app`), behaves like `/s` for local testing. Press
+//! Escape or close the window to quit in any mode; in `/s` mode, any key
+//! press, click, or mouse movement also quits, matching how every real
+//! screensaver behaves.
+//!
+//! The RNG seed defaults to a time-based value each run (see
+//! `rand_seed`), since that's what every real activation actually gets —
+//! Windows never passes `--seed` — so it's what local testing should see
+//! too unless a reproducible run is specifically what's being tested. Pass
+//! `--seed <n>` explicitly for that (e.g. `cargo run -p pipes-app --
+//! --seed 1`).
 
 // Debug builds keep the console (so `cargo run`/`tracing` output is visible
 // in the terminal); release builds drop it. Without this, Rust defaults to
@@ -200,17 +207,40 @@ impl Rendering {
     }
 }
 
-fn parse_seed(args: &[String]) -> u64 {
-    let mut seed = 1u64;
+/// The RNG seed explicitly requested via `--seed <n>`, if any and if it
+/// parses — `None` otherwise (including a malformed value, which is
+/// treated the same as not passing `--seed` at all rather than silently
+/// falling back to some other number). If `--seed` appears more than
+/// once, the last one that actually parses wins, matching how repeated
+/// flags are conventionally resolved.
+fn parse_seed_arg(args: &[String]) -> Option<u64> {
+    let mut seed = None;
     let mut iter = args.iter();
     while let Some(flag) = iter.next() {
         if flag == "--seed" {
             if let Some(v) = iter.next() {
-                seed = v.parse().unwrap_or(seed);
+                if let Ok(parsed) = v.parse() {
+                    seed = Some(parsed);
+                }
             }
         }
     }
     seed
+}
+
+/// Time-based fallback seed for a real run with no explicit `--seed`.
+/// Windows never passes one when it launches the actual `/s` screensaver
+/// — without this, every single activation would replay the exact same
+/// bit-for-bit pipe-growth pattern forever, which is a real bug rather
+/// than a missing feature: a screensaver's whole appeal is a fresh
+/// pattern each time, not determinism. Mirrors `pipes-settings`'
+/// `rand_seed()` and `pipes-xscreensaver`'s equivalent; `--seed` stays
+/// available as an explicit override for reproducible manual testing.
+fn rand_seed() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(1)
 }
 
 /// Candidate locations for `pipes-settings`, tried in order: (1) next to
@@ -279,7 +309,7 @@ fn main() {
 
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let mode = parse_screensaver_args(&raw_args);
-    let seed = parse_seed(&raw_args);
+    let seed = parse_seed_arg(&raw_args).unwrap_or_else(rand_seed);
 
     info!(?mode, "neo_win_pipes starting");
 
@@ -553,6 +583,49 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn args(strs: &[&str]) -> Vec<String> {
+        strs.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn parse_seed_arg_is_none_when_not_passed() {
+        assert_eq!(parse_seed_arg(&args(&["/s"])), None);
+        assert_eq!(parse_seed_arg(&args(&[])), None);
+    }
+
+    #[test]
+    fn parse_seed_arg_reads_an_explicit_value() {
+        assert_eq!(parse_seed_arg(&args(&["--seed", "42"])), Some(42));
+    }
+
+    #[test]
+    fn parse_seed_arg_ignores_a_malformed_value_rather_than_defaulting() {
+        // A garbage --seed value must not silently claim some other
+        // number is what was requested — it should read the same as not
+        // passing --seed at all, so the real-run random fallback kicks in
+        // rather than a fake "deterministic" run nobody actually asked for.
+        assert_eq!(parse_seed_arg(&args(&["--seed", "not-a-number"])), None);
+    }
+
+    #[test]
+    fn parse_seed_arg_with_nothing_after_the_flag_is_none() {
+        assert_eq!(parse_seed_arg(&args(&["--seed"])), None);
+    }
+
+    #[test]
+    fn parse_seed_arg_keeps_the_last_flag_that_actually_parses() {
+        assert_eq!(
+            parse_seed_arg(&args(&["--seed", "5", "--seed", "bogus"])),
+            Some(5),
+            "a later malformed --seed shouldn't erase an earlier valid one"
+        );
+        assert_eq!(
+            parse_seed_arg(&args(&["--seed", "5", "--seed", "9"])),
+            Some(9),
+            "a later valid --seed should override an earlier one"
+        );
+    }
 
     #[test]
     fn seed_for_monitor_index_zero_is_the_base_seed() {
