@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Overrides a handful of WixUI_Minimal's built-in strings (all marked
+  Overridable="yes" by the extension) purely to swap in a light-colored
+  text style — see the WixUI_Font_*_Light TextStyle definitions in
+  main.wxs. WelcomeEulaDlg's title/description and ExitDialog's
+  title/description render directly on top of installer\dialog.bmp (a
+  dark screenshot), and the extension's default text color is plain
+  black, unreadable against it. The wording here doesn't need to match
+  WiX's original strings verbatim — overriding a String Id replaces its
+  rendered value entirely.
+-->
+<WixLocalization Culture="en-US" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <String Id="WelcomeEulaDlgTitle" Value="{\WixUI_Font_Title_Light}Welcome to the [ProductName] Setup Wizard" />
+  <String Id="WelcomeEulaDlgDescription" Value="{\WixUI_Font_Normal_Light}Please review the license below, then click Next to continue or Cancel to exit." />
+  <String Id="ExitDialogTitle" Value="{\WixUI_Font_Title_Light}Completed the [ProductName] Setup Wizard" />
+  <String Id="ExitDialogDescription" Value="{\WixUI_Font_Normal_Light}Click Finish to exit the wizard." />
+</WixLocalization>

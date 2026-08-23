@@ -118,6 +118,7 @@ cargo build --release -p pipes-app -p pipes-settings
 $env:Path = "$env:USERPROFILE\.dotnet;$env:USERPROFILE\.dotnet\tools;" + $env:Path
 $env:DOTNET_ROOT = "$env:USERPROFILE\.dotnet"
 wix build installer\main.wxs -ext WixToolset.UI.wixext -arch x64 `
+  -loc installer\strings.en-us.wxl `
   -d PipesAppExe="target\release\pipes-app.exe" `
   -d PipesSettingsExe="target\release\pipes-settings.exe" `
   -o installer\out\neo_win_pipes.msi

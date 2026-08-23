@@ -49,6 +49,18 @@
     <ui:WixUI Id="WixUI_Minimal" />
     <WixVariable Id="WixUILicenseRtf" Value="installer\license.rtf" />
 
+    <!-- WelcomeEulaDlg's and ExitDialog's title/description sit directly on
+         top of installer\dialog.bmp (a dark screenshot); WixUI_Minimal's
+         default text style renders them plain black, unreadable against
+         it. These two extra TextStyles plus the string overrides in
+         installer\strings.en-us.wxl (passed to `wix build` via -loc, see
+         docs/DEVELOPMENT.md) swap just those four strings to a light
+         color, leaving every other WixUI_Minimal string/style untouched. -->
+    <UI>
+      <TextStyle Id="WixUI_Font_Title_Light" FaceName="Tahoma" Size="9" Bold="yes" Red="255" Green="255" Blue="255" />
+      <TextStyle Id="WixUI_Font_Normal_Light" FaceName="Tahoma" Size="8" Red="255" Green="255" Blue="255" />
+    </UI>
+
     <!-- Replace the WiX-default installer artwork with real screenshots of
          the pipes screensaver itself, cropped/rendered from the same hero
          image used on the splash site (see installer\make_installer_bmps.ps1).

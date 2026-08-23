@@ -86,6 +86,7 @@ jobs:
           # pipes-settings.exe. This is the actual cause of "Settings
           # doesn't open" from the screensaver dialog after a real install.
           wix build installer\main.wxs -ext WixToolset.UI.wixext -arch x64 `
+            -loc installer\strings.en-us.wxl `
             -d PipesAppExe="target\release\pipes-app.exe" `
             -d PipesSettingsExe="target\release\pipes-settings.exe" `
             -d ProductVersion="${{ steps.version.outputs.version }}" `
