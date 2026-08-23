@@ -570,16 +570,41 @@ human clicks once.
   and flaky, not a good test).
 - If a newer version with a `.msi` release asset is found, the UI shows a
   dismissible top banner: "A new version is available" + **Update Now** +
-  **Release notes** + **Dismiss**. Clicking **Update Now** downloads the
-  `.msi` to a temp file and launches `msiexec /i ... /passive /norestart`
+  **Release notes** + **Dismiss** — and, the first time, a native Windows
+  toast notification too (`notify.rs`), clickable to bring the window to
+  the front; see the "Update notification" subsection below. Clicking
+  **Update Now** downloads the `.msi` to a temp file, verifies it against
+  GitHub's own SHA-256 digest for that asset (`update::verify_checksum` —
+  see `SECURITY.md`), and launches `msiexec /i ... /passive /norestart`
   (skips the wizard's Welcome/License/Finish clicks since the user
   already saw those on first install — but not the UAC prompt, which
   can't be skipped), then exits `pipes-settings` itself so the running
-  `.exe` isn't locked while its own file gets replaced.
+  `.exe` isn't locked while its own file gets replaced. A checksum
+  mismatch aborts the update instead of launching the installer.
 - This only checks when `pipes-settings` happens to be open — there's no
   background service polling on a schedule. Given this is a screensaver
   utility people open occasionally to tweak settings, that's judged a
   reasonable cadence; revisit if it isn't in practice.
+
+### Update notification (`pipes-settings::notify`)
+
+Windows-only for now (see `docs/ROADMAP.md` for why: no Linux/macOS
+machine to verify a notification actually renders/is clickable, and
+`CLAUDE.md`'s conventions rule out shipping unverified platform code).
+Fires a real Windows toast (WinRT `ToastNotification`, not just the
+in-app banner) the first time a check finds an update, using an
+in-process `Activated` event handler to bring the window to the front on
+click — deliberately *not* a background/tray app that checks while the
+app is closed, which would mean adding an always-running autostart
+process purely to reverse the "no background service" design choice
+above for very little real benefit. Requires
+`installer/main.wxs`'s Start Menu shortcut to carry a
+`System.AppUserModel.ID` `ShortcutProperty` matching `notify.rs`'s AUMID
+constant exactly — Microsoft's documented requirement for an unpackaged
+desktop exe's toast to display at all; without it the WinRT call
+succeeds but nothing visibly appears (confirmed by actually running a
+bare dev build and watching the screen — real "run what you built"
+practice, not something inferred from docs).
 
 ### The supply side: `.github/workflows/release.yml`
 

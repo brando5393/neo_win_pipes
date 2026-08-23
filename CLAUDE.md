@@ -116,6 +116,24 @@ change, not just the initial scaffold:
    docs or the wiki, so nothing keeps it in sync automatically. Use
    judgment (an internal refactor doesn't need this); the point is to
    check, not to update it reflexively for everything.
+10. **Update the relevant `docs/*.md` files and the GitHub wiki in the
+    same change as any genuinely user-facing or architecture-affecting
+    change** — a new feature, a changed default, a new security-relevant
+    behavior, a platform status change. Not "consider whether to" like
+    the `site/` guidance above (that one bites for cosmetic/marketing
+    content where judgment genuinely varies) — this one is a
+    requirement, the same weight as the other non-negotiable items on
+    this list, because nothing else keeps `docs/`, the wiki (cloned from
+    `https://github.com/brando5393/neo_win_pipes.wiki.git`, not part of
+    this repo's own git history), and reality in sync automatically. A
+    change that's purely internal (a refactor with no behavior change,
+    a test-only commit) doesn't need this; if in doubt, treat it as
+    user-facing. This was written down explicitly after a session where
+    several real features shipped (the color-palette hex/RGB input, the
+    installer artwork fix, the update-notification/checksum work,
+    `SECURITY.md`) before the wiki and some `docs/` pages had been
+    touched at all — catching up after the fact instead of doing it in
+    the same change it belonged in.
 
 ## Where to look
 

@@ -22,6 +22,12 @@ pub struct AvailableUpdate {
     pub version: Version,
     pub msi_download_url: String,
     pub release_page_url: String,
+    /// GitHub computes and serves a SHA-256 digest for every release asset
+    /// itself (the same one shown on the splash site's "Verify your
+    /// download" panel) — `None` only if GitHub's response is ever
+    /// missing it, in which case `download_installer` skips verification
+    /// rather than failing every update.
+    pub expected_sha256: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -35,6 +41,8 @@ struct GitHubRelease {
 struct GitHubAsset {
     name: String,
     browser_download_url: String,
+    #[serde(default)]
+    digest: Option<String>,
 }
 
 /// Parses a GitHub "latest release" API response and returns an update
@@ -53,7 +61,25 @@ fn parse_update(current: &Version, body: &str) -> Option<AvailableUpdate> {
         version: remote_version,
         msi_download_url: msi.browser_download_url.clone(),
         release_page_url: release.html_url,
+        expected_sha256: msi
+            .digest
+            .as_deref()
+            .and_then(|d| d.strip_prefix("sha256:"))
+            .map(str::to_owned),
     })
+}
+
+/// Lowercase hex SHA-256 of `bytes` — matches the format GitHub's own
+/// `digest` field uses, so the two can be compared directly.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Checks GitHub for a newer release. Never panics; any network/parse
@@ -73,7 +99,16 @@ pub fn check_for_update(current: &Version) -> Option<AvailableUpdate> {
     parse_update(current, &body)
 }
 
-/// Downloads the update's installer to a temp file and returns its path.
+/// Downloads the update's installer to a temp file, verifies it against
+/// `expected_sha256` (GitHub's own digest for that asset) when available,
+/// and returns its path. This isn't a substitute for code signing (the
+/// binaries are still unsigned — see docs/ROADMAP.md and SECURITY.md) —
+/// it can't prove the release itself is legitimate, only that the bytes
+/// on disk are exactly the bytes GitHub says it served. It does catch a
+/// corrupted download or tampering in transit/at rest, for free, using a
+/// value we already fetch. A mismatch deletes the file and fails the
+/// update rather than launching an installer that doesn't match what was
+/// promised.
 pub fn download_installer(update: &AvailableUpdate) -> Result<std::path::PathBuf, String> {
     let path = std::env::temp_dir().join(format!("neo_win_pipes_update_{}.msi", update.version));
     let response = ureq::get(&update.msi_download_url)
@@ -81,9 +116,29 @@ pub fn download_installer(update: &AvailableUpdate) -> Result<std::path::PathBuf
         .timeout(std::time::Duration::from_secs(120))
         .call()
         .map_err(|err| err.to_string())?;
-    let mut file = std::fs::File::create(&path).map_err(|err| err.to_string())?;
-    std::io::copy(&mut response.into_reader(), &mut file).map_err(|err| err.to_string())?;
+    let mut bytes = Vec::new();
+    std::io::copy(&mut response.into_reader(), &mut bytes).map_err(|err| err.to_string())?;
+
+    verify_checksum(&bytes, update.expected_sha256.as_deref())?;
+
+    std::fs::write(&path, &bytes).map_err(|err| err.to_string())?;
     Ok(path)
+}
+
+/// Pure (no I/O) so it's directly unit-testable, unlike the network call
+/// around it. `expected: None` (GitHub's response was ever missing a
+/// digest) passes through without checking anything.
+fn verify_checksum(bytes: &[u8], expected: Option<&str>) -> Result<(), String> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    let actual = sha256_hex(bytes);
+    if actual != expected {
+        return Err(format!(
+            "downloaded installer's checksum doesn't match GitHub's ({actual} != {expected}) - refusing to install it"
+        ));
+    }
+    Ok(())
 }
 
 /// Launches the downloaded installer in "passive" mode (progress UI only,
@@ -104,6 +159,12 @@ mod tests {
     fn sample_release(tag: &str, asset_name: &str) -> String {
         format!(
             r#"{{"tag_name": "{tag}", "html_url": "https://github.com/brando5393/neo_win_pipes/releases/tag/{tag}", "assets": [{{"name": "{asset_name}", "browser_download_url": "https://example.com/{asset_name}"}}]}}"#
+        )
+    }
+
+    fn sample_release_with_digest(tag: &str, asset_name: &str, digest: &str) -> String {
+        format!(
+            r#"{{"tag_name": "{tag}", "html_url": "https://github.com/brando5393/neo_win_pipes/releases/tag/{tag}", "assets": [{{"name": "{asset_name}", "browser_download_url": "https://example.com/{asset_name}", "digest": "{digest}"}}]}}"#
         )
     }
 
@@ -151,5 +212,47 @@ mod tests {
         let current = Version::parse("0.1.0").unwrap();
         let body = sample_release("0.2.0", "neo_win_pipes.msi");
         assert!(parse_update(&current, &body).is_some());
+    }
+
+    #[test]
+    fn digest_is_extracted_with_sha256_prefix_stripped() {
+        let current = Version::parse("0.1.0").unwrap();
+        let body = sample_release_with_digest("v0.2.0", "neo_win_pipes.msi", "sha256:abc123");
+        let update = parse_update(&current, &body).unwrap();
+        assert_eq!(update.expected_sha256.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn missing_digest_yields_none_not_an_error() {
+        let current = Version::parse("0.1.0").unwrap();
+        let body = sample_release("v0.2.0", "neo_win_pipes.msi");
+        let update = parse_update(&current, &body).unwrap();
+        assert_eq!(update.expected_sha256, None);
+    }
+
+    #[test]
+    fn sha256_hex_matches_known_vector() {
+        // The well-known SHA-256 of the empty input.
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn verify_checksum_passes_when_no_expected_digest() {
+        assert!(verify_checksum(b"anything", None).is_ok());
+    }
+
+    #[test]
+    fn verify_checksum_passes_on_a_match() {
+        let hash = sha256_hex(b"hello");
+        assert!(verify_checksum(b"hello", Some(&hash)).is_ok());
+    }
+
+    #[test]
+    fn verify_checksum_fails_on_a_mismatch() {
+        let err = verify_checksum(b"tampered bytes", Some("0000000000000000")).unwrap_err();
+        assert!(err.contains("doesn't match"));
     }
 }

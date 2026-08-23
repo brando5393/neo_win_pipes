@@ -31,6 +31,7 @@ semver = "1"
 # pairing with zbus's "async-io" backend below, and this project has no
 # other reason to pull in a full tokio runtime.
 rfd = { version = "0.14", default-features = false, features = ["xdg-portal", "async-std"] }
+sha2 = "0.10"
 
 # Not used directly: rfd's "xdg-portal" feature (the native Linux file
 # dialog, via ashpd) pulls in zbus without any async-backend feature

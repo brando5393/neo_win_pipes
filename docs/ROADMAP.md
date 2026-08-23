@@ -289,6 +289,14 @@ for the full writeup per platform.
       given the `System32` requirement (still one UAC prompt per update).
       Free: no paid update host, no background service — just GitHub's
       own Releases API.
+- [x] The downloaded `.msi` is verified against GitHub's own SHA-256
+      digest for that release asset before `msiexec` ever runs it
+      (`update::verify_checksum`) — catches a corrupted download or
+      tampering in transit/at rest, using a value already fetched for
+      free. Not a substitute for code signing (still unsigned, see
+      below) and can't vouch for the release itself being legitimate,
+      only that the bytes on disk match what GitHub says it served. See
+      `SECURITY.md`.
 - [ ] **Native OS toast for the update banner** (`crates/pipes-settings/src/notify.rs`)
       — fires a real Windows toast notification (not just the in-app
       banner) the first time an update check finds a newer version;
