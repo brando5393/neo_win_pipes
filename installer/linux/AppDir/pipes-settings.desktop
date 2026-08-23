@@ -4,5 +4,5 @@ Name=Pipes Settings
 Comment=Live preview and settings for the Neo Pipes screensaver
 Exec=pipes-settings
 Icon=neo_win_pipes
-Categories=Settings;
+Categories=Settings;Utility;
 Terminal=false

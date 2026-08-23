@@ -39,8 +39,32 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of neo_win_pipes is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- Shows up in the .msi file's own Explorer Properties > Details tab,
+         before anyone even runs it. -->
+    <SummaryInformation Keywords="screensaver, pipes, 3D, retro"
+                        Description="neo_win_pipes installer"
+                        Comments="A cross-platform recreation of the classic Windows 3D Pipes screensaver."
+                        Manufacturer="Brandon Williams" />
+
     <ui:WixUI Id="WixUI_Minimal" />
     <WixVariable Id="WixUILicenseRtf" Value="installer\license.rtf" />
+
+    <!-- Replace the WiX-default installer artwork with real screenshots of
+         the pipes screensaver itself, cropped/rendered from the same hero
+         image used on the splash site (see installer\make_installer_bmps.ps1).
+         Dimensions are WixUI_Minimal's fixed contract, not a choice:
+         WixUIDialogBmp is the WelcomeEulaDlg background (493x312, matching
+         its Bitmap control's 370x234 dialog units at the standard 1.333
+         px/unit scale) and WixUIBannerBmp is ProgressDlg's top strip
+         (493x58). The banner carries a "neo_win_pipes" wordmark rendered in
+         the site's DotGothic16 heading font — baked into the bitmap itself
+         since MSI's native dialog text can only use fonts already on the
+         target machine, not a webfont. The dialog background stays
+         wordmark-free: WelcomeEulaDlg stacks its own title text and license
+         scroll box on top of most of that bitmap, so text baked into the
+         image would clash with or hide behind those controls. -->
+    <WixVariable Id="WixUIDialogBmp" Value="installer\dialog.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="installer\banner.bmp" />
 
     <!-- Both binaries embed this same icon at compile time (see
          build.rs + winres in crates/pipes-app and crates/pipes-settings),
@@ -50,6 +74,12 @@
          shows next to the listing, and needs to be set explicitly. -->
     <Icon Id="AppIcon.ico" SourceFile="assets\icon\windows\icon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+
+    <!-- Fills out the rest of the Settings -> Apps / Programs and Features
+         listing for this product, alongside the icon above. -->
+    <Property Id="ARPHELPLINK" Value="https://github.com/brando5393/neo_win_pipes/issues" />
+    <Property Id="ARPURLINFOABOUT" Value="https://neowinpipes.com" />
+    <Property Id="ARPCOMMENTS" Value="A cross-platform recreation of the classic Windows 3D Pipes screensaver." />
 
     <!-- ProgramFiles64Folder / System64Folder, not the plain (32-bit)
          ProgramFilesFolder / SystemFolder: this package is built with
@@ -68,6 +98,23 @@
     <StandardDirectory Id="System64Folder">
       <Component Id="PipesScr" Guid="9c2e6a4d-8b1f-4e3c-8a2d-5f6b7c8d9e0a">
         <File Id="PipesScrFile" Source="$(var.PipesAppExe)" Name="neo_win_pipes.scr" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="3e1f2a4b-6c5d-4e7f-8a9b-0c1d2e3f4a5b">
+        <Shortcut Id="PipesSettingsDesktopShortcut"
+                  Name="Pipes Settings"
+                  Description="Live preview and settings for the neo_win_pipes screensaver"
+                  Target="[INSTALLFOLDER]pipes-settings.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon.ico" />
+        <RegistryValue Root="HKCU"
+                        Key="Software\neo_win_pipes"
+                        Name="desktop_shortcut_installed"
+                        Type="integer"
+                        Value="1"
+                        KeyPath="yes" />
       </Component>
     </StandardDirectory>
 
@@ -106,6 +153,7 @@
       <ComponentRef Id="PipesSettingsExe" />
       <ComponentRef Id="PipesScr" />
       <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
     </Feature>
 
   </Package>
