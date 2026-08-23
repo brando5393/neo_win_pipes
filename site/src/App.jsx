@@ -1,5 +1,6 @@
 import { Workflow, Palette, Sparkles, SlidersHorizontal, Bug, Monitor, CheckCircle2, AlertTriangle, MinusCircle, GitFork, BookOpen, Tag, Download } from 'lucide-react'
 import DownloadButtons from './components/DownloadButtons'
+import Checksums from './components/Checksums'
 import PipesHero from './components/PipesHero'
 import Reveal from './components/Reveal'
 import pipesSettings from './assets/pipes-settings.png'
@@ -155,6 +156,7 @@ export default function App() {
         <div className="mt-8">
           <DownloadButtons />
         </div>
+        <Checksums />
       </Reveal>
 
       {/* Footer */}
