@@ -282,6 +282,19 @@ for the full writeup per platform.
       will warn on first run/update until there's a code-signing
       certificate, which costs money — deliberately out of scope for a
       free hobby project unless that changes).
+- [x] Custom installer artwork (welcome/EULA background + progress banner
+      cropped from the same pipes hero screenshot the splash site uses,
+      regenerated via `installer/make_installer_bmps.ps1`; the banner
+      carries a "neo_win_pipes" wordmark rendered in the site's own
+      DotGothic16 font, baked into the bitmap since MSI's native dialog
+      text can only use fonts already on the target machine), a Desktop
+      shortcut alongside the Start Menu one, and filled-out ARP metadata
+      (`ARPHELPLINK`/`ARPURLINFOABOUT`/`ARPCOMMENTS` + `SummaryInformation`)
+      for the Programs and Features listing and the `.msi`'s own file
+      properties. Deliberately not doing: letting the user choose an
+      install location (would break `/c`'s fixed Program-Files lookup for
+      `pipes-settings.exe`) or code signing (costs money, see the
+      known-limitation below).
 - [x] Persistent file logging + a human-readable fatal-error dialog.
       Prompted by the `windows_subsystem` fix above: a release build has
       no console, so `stdout` (where logs used to go) now goes nowhere —
