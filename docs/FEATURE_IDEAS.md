@@ -39,6 +39,86 @@ for, not just what seemed neat.
 - ~~The classic screensaver's teapot easter egg~~ — **shipped**: a rare, separate roll (`JointKind::Teapot`, `teapot_easter_egg_enabled` + `teapot_probability`) renders a procedural teapot mesh (`pipes_render::geometry::teapot()` — lathed body/spout, torus-arc handle, sphere knob; not the exact historical Utah teapot control-point dataset, an honest approximation) at a joint instead of the normal ball/elbow.
 - ~~Multi-monitor configurable behavior (promoted up from "Modern-platform expectations" below)~~ — **shipped**, see above.
 
+## From the real original source (verified 2026-08-23, not clone-inferred)
+
+Reading the actual 1994-95 OpenGL C++ source directly (see
+`docs/RESEARCH.md`'s "What the real original source actually does"
+section) turned up several real original features neo_win_pipes doesn't
+have, ranked by my own read of effort vs. payoff:
+
+1. **Per-pipe randomized straight/turn "personality" instead of one fixed
+   global ratio** — highest value, lowest effort of this batch. The
+   original rolls each pipe as either a rare (1-in-20) long-straight-runner
+   or a common turny/zigzaggy pipe at spawn time, not one fixed ratio
+   applied uniformly to every pipe every step the way `straight_weight`/
+   `turn_weight` work today. This is a `Pipe`-construction-time change in
+   `pipes-core` (no new rendering, no new config surface required to get
+   the *behavior* right, though it could still stay tunable) and would
+   make the simulation's pacing look more like the real original's mix of
+   long runs and busy clusters, rather than uniform. Worth doing.
+2. **A "Cycle" joint type**, distinct from "Mixed" — cycles through joint
+   styles deterministically rather than randomizing per joint. Cheap:
+   `JointKind` already exists, this is one more variant and a spawn-order
+   counter, similar in shape to the already-shipped
+   `lock_colors_across_resets` deterministic-cycling logic.
+3. **A tessellation-quality slider** — real original had one
+   (`fTesselFact`, 0.0-2.0). Moderate effort: today's segment/cylinder
+   resolution is a fixed constant in `pipes-render`; exposing it means
+   plumbing a quality knob through geometry generation and validating it
+   doesn't blow up instance buffer sizes at the high end.
+4. **A wireframe rendering mode** — a real, distinct `SURFSTYLE_WIREFRAME`
+   option in the original, not something we or any clone surveyed has.
+   Moderate effort (a different `MeshBasicMaterial`-equivalent/fill mode
+   per pipe style), clearly-scoped, and cheap to make optional.
+5. **Textured pipe surfaces** (`SURFSTYLE_TEX`, up to 8 textures, a
+   quality toggle) — real, but meaningfully more work: texture loading,
+   UV mapping along the pipe's cylindrical surface, and a way to ship or
+   let users supply texture assets. Lower priority than the above; solid
+   chrome-style materials are already the more iconic/recognizable look
+   anyway.
+6. **"Flex" pipes** (continuously-curved NURBS-bent tube geometry instead
+   of rigid segments + joints) — the most ambitious item found. A
+   genuinely different rendering mode from the segment/joint model this
+   whole codebase (and every clone surveyed) is built around; would mean
+   new curve-evaluation geometry code in `pipes-render`, not a small
+   tweak. Interesting, but I'd treat this as a "someday" idea, not a
+   near-term one, given the size of the lift relative to the other items
+   here.
+
+## My own assessment, for what it's worth (2026-08-23 review)
+
+Asked to review the repo and record genuine opinions, not just relay
+sourced facts, alongside the research above:
+
+- **The single most valuable near-term feature-idea item is #1 above**
+  (per-pipe randomized personality). It's a real, sourced, small
+  simulation-logic change that would visibly change how the default
+  simulation looks and feels closer to the actual original, for very
+  little implementation risk — the kind of change that's easy to get
+  right and easy to unit-test (`pipes-core` already has strong test
+  discipline per `CLAUDE.md`'s founding requirement).
+- **Everything else I looked at in `crates/` looked genuinely solid.** No
+  `TODO`/`FIXME`/`XXX` markers anywhere in the Rust source, which either
+  means the team (well - just this AI-assisted project, but still)
+  doesn't leave loose threads lying around, or resolves them before
+  moving on — either way, a good sign for a repo this size.
+- **The GPU device-loss crash already logged in `docs/ROADMAP.md`**
+  (found 2026-08-23 testing the color-palette feature on Windows-on-ARM64)
+  remains the most concrete *robustness* gap I know of in the actual
+  shipped code, separate from the feature ideas above. I'd rank fixing
+  that above any of the new-feature items here if forced to choose,
+  simply because it's a real crash a real user hit, not a hypothetical.
+- I did not find anything in the original developers' own words (beyond
+  the origin story itself) about features they wished they'd shipped or
+  regretted not doing — that specific angle of the research request came
+  up empty across every source I checked, and I'd rather say so plainly
+  than invent something plausible-sounding.
+- I'm intentionally not promoting any of the six items above into
+  `docs/ROADMAP.md` myself — per this file's own stated purpose ("items
+  get promoted into ROADMAP.md phases when someone decides to build
+  them"), that's a call for the project owner to make, not something to
+  do unilaterally just because research turned it up.
+
 ## Where this feeds in
 
 The v1 settings app (in progress) starts from the *validated* list above:
