@@ -64,7 +64,7 @@ export default function App() {
       <header className="relative overflow-hidden">
         <PipesHero
           alt="neo_win_pipes screensaver running fullscreen, showing multicolored pipes and two teapot easter eggs"
-          className="absolute inset-0 h-full w-full object-cover opacity-40"
+          className="absolute inset-0 h-full w-full object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-[#0b0d12]/40 via-[#0b0d12]/70 to-[#0b0d12]" />
         <div className="relative mx-auto max-w-4xl px-6 py-28 text-center sm:py-36">

@@ -13,11 +13,13 @@ import screensaverHero from '../assets/screensaver-hero.png'
 const GRID = { w: 10, h: 6, d: 10 }
 const CELL = 1
 const MAX_CONCURRENT_PIPES = 5
-// Comfortably above GRID.w*h*d * RESET_OCCUPANCY_RATIO (600 * 0.5 = 300):
-// every occupied cell but a pipe's own starting one gets a segment
-// instance, so the cap must clear the reset threshold or segments would
-// silently stop appearing for the last stretch before a reset fires.
-const MAX_SEGMENT_INSTANCES = 320
+// Comfortably above (GRID.w*h*d * RESET_OCCUPANCY_RATIO) / PALETTE.length
+// (600 * 0.5 / 5 = 60) — every occupied cell but a pipe's own starting one
+// gets a segment instance *of that pipe's color*, so each color's own cap
+// must clear its plausible worst-case share or segments would silently
+// stop appearing for the last stretch before a reset fires. Generous
+// headroom here since color assignment is random, not evenly split.
+const MAX_INSTANCES_PER_COLOR = 150
 const MAX_PIPE_LENGTH = 55
 const RESET_OCCUPANCY_RATIO = 0.5
 const TICK_MS = 130
@@ -86,10 +88,11 @@ class Pipe {
 
       occupied.add(key(...next))
       const from = this.cell
+      const turned = dir !== this.dir
       this.cell = next
       this.dir = dir
       this.length += 1
-      return { from, to: next, color: this.color }
+      return { from, to: next, color: this.color, turned }
     }
     this.alive = false
     return null
@@ -104,28 +107,47 @@ function buildScene(THREE, canvas) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.setClearColor(0x000000, 0)
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.35))
-  const key1 = new THREE.DirectionalLight(0xffffff, 1.1)
-  key1.position.set(6, 9, 4)
-  scene.add(key1)
-  const fill = new THREE.DirectionalLight(0x88aaff, 0.4)
-  fill.position.set(-5, 2, -6)
-  scene.add(fill)
-
   const segmentGeo = new THREE.CylinderGeometry(0.16, 0.16, 1, 10)
-  const jointGeo = new THREE.SphereGeometry(0.22, 10, 10)
-  const material = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.35 })
+  const jointGeo = new THREE.SphereGeometry(0.27, 10, 10)
 
-  const segments = new THREE.InstancedMesh(segmentGeo, material, MAX_SEGMENT_INSTANCES)
-  const joints = new THREE.InstancedMesh(jointGeo, material, MAX_SEGMENT_INSTANCES)
-  segments.count = 0
-  joints.count = 0
-  scene.add(segments, joints)
+  // One InstancedMesh pair (segments + joints) per palette color, each
+  // with its own solid, unlit material.color — rather than one shared
+  // InstancedMesh using per-instance vertex/instanceColor. Unlit
+  // (MeshBasicMaterial) so no lighting/environment tuning is needed for
+  // colors to show correctly at all. This is deliberately the simpler,
+  // more verbose option: per-instance instanceColor rendered solid black
+  // in real-device testing here for reasons that didn't resolve with the
+  // documented API (setColorAt + instanceColor.needsUpdate) — likely a
+  // driver/three.js-version-specific quirk — so this sidesteps that
+  // mechanism entirely rather than trying to root-cause it further.
+  const perColor = PALETTE.map((hex) => {
+    const material = new THREE.MeshBasicMaterial({ color: hex })
+    const segments = new THREE.InstancedMesh(segmentGeo, material, MAX_INSTANCES_PER_COLOR)
+    const joints = new THREE.InstancedMesh(jointGeo, material, MAX_INSTANCES_PER_COLOR)
+    // InstancedMesh's default bounding sphere comes from the base geometry
+    // alone (a small unit shape near the origin) — it's never recomputed
+    // as instances get placed across the grid, so the automatic
+    // frustum-cull check sees a stale, tiny bounding volume and culls the
+    // entire mesh the moment the orbiting camera looks anywhere else.
+    // This is a small, always-in-view decorative scene, so disabling
+    // culling entirely is simpler and cheaper than recomputing bounds
+    // every frame.
+    segments.frustumCulled = false
+    joints.frustumCulled = false
+    segments.count = 0
+    joints.count = 0
+    scene.add(segments, joints)
+    return { hex, material, segments, joints, segmentCursor: 0, jointCursor: 0 }
+  })
 
   const center = new THREE.Vector3((GRID.w - 1) / 2, (GRID.h - 1) / 2, (GRID.d - 1) / 2)
-  const radius = Math.max(GRID.w, GRID.h, GRID.d) * 1.15
+  // Closer than a "properly framed" shot would be — deliberately, so the
+  // scene reads as filling the hero edge to edge the way the static photo
+  // it replaces did, rather than looking like a small diorama floating in
+  // a mostly-empty dark rectangle.
+  const radius = Math.max(GRID.w, GRID.h, GRID.d) * 0.75
 
-  return { scene, camera, renderer, segments, joints, center, radius, segmentGeo, jointGeo, material }
+  return { scene, camera, renderer, perColor, center, radius, segmentGeo, jointGeo }
 }
 
 export default function PipesHero({ className = '', alt }) {
@@ -151,7 +173,13 @@ export default function PipesHero({ className = '', alt }) {
       }
       if (!ctx.renderer.getContext()) return
       setUseCanvas(true)
-      cleanup = setupAnimation(THREE, ctx, canvasRef)
+      // onFailure: something went wrong *after* setup succeeded (a WebGL
+      // context loss, a runtime exception mid-frame) — tear down and fall
+      // back to the static image rather than leave a frozen or corrupted
+      // canvas on screen with nothing recovering it.
+      cleanup = setupAnimation(THREE, ctx, canvasRef, () => {
+        if (!cancelled) setUseCanvas(false)
+      })
     }).catch(() => {
       // three.js failed to load (offline, blocked, etc.) — the fallback
       // <img> is already what's rendered since useCanvas never flips true.
@@ -165,16 +193,21 @@ export default function PipesHero({ className = '', alt }) {
 
   return (
     <>
+      {/* A photo needs the same opacity-40 dimming the old static hero
+          used for text legibility; this dark, comparatively sparse 3D
+          scene reads as intentional (not an invisible mistake) at a much
+          lighter dim instead — the two aren't interchangeable even though
+          they share the same layout classes. */}
       <canvas
         ref={canvasRef}
-        className={`${className} ${useCanvas ? '' : 'hidden'}`}
+        className={`${className} opacity-80 ${useCanvas ? '' : 'hidden'}`}
         aria-hidden="true"
       />
       {!useCanvas && (
         <img
           src={screensaverHero}
           alt={alt}
-          className={className}
+          className={`${className} opacity-40`}
         />
       )}
     </>
@@ -186,30 +219,29 @@ export default function PipesHero({ className = '', alt }) {
 // rather than living inline in the effect, both for readability and so
 // `buildScene`/this share the same `THREE` module reference explicitly
 // instead of a module-level import.
-function setupAnimation(THREE, ctx, canvasRef) {
-  const { scene, camera, renderer, segments, joints, center, radius, segmentGeo, jointGeo, material } = ctx
+function setupAnimation(THREE, ctx, canvasRef, onFailure) {
+  const { scene, camera, renderer, perColor, center, radius, segmentGeo, jointGeo } = ctx
   const occupied = new Set()
   let pipes = []
-  let segmentCursor = 0
-  let jointCursor = 0
   const dummy = new THREE.Object3D()
-  const color = new THREE.Color()
+  const colorEntry = new Map(perColor.map((entry) => [entry.hex, entry]))
 
-  function placeJoint(cell) {
-    if (jointCursor >= MAX_SEGMENT_INSTANCES) return
+  function placeJoint(hex, cell) {
+    const entry = colorEntry.get(hex)
+    if (entry.jointCursor >= MAX_INSTANCES_PER_COLOR) return
     dummy.position.set(cell[0] * CELL, cell[1] * CELL, cell[2] * CELL)
     dummy.rotation.set(0, 0, 0)
     dummy.scale.setScalar(1)
     dummy.updateMatrix()
-    joints.setMatrixAt(jointCursor, dummy.matrix)
-    joints.setColorAt(jointCursor, color)
-    jointCursor += 1
-    joints.count = jointCursor
-    joints.instanceColor.needsUpdate = true
+    entry.joints.setMatrixAt(entry.jointCursor, dummy.matrix)
+    entry.jointCursor += 1
+    entry.joints.count = entry.jointCursor
+    entry.joints.instanceMatrix.needsUpdate = true
   }
 
-  function placeSegment(from, to) {
-    if (segmentCursor >= MAX_SEGMENT_INSTANCES) return
+  function placeSegment(hex, from, to) {
+    const entry = colorEntry.get(hex)
+    if (entry.segmentCursor >= MAX_INSTANCES_PER_COLOR) return
     const a = new THREE.Vector3(from[0] * CELL, from[1] * CELL, from[2] * CELL)
     const b = new THREE.Vector3(to[0] * CELL, to[1] * CELL, to[2] * CELL)
     const mid = a.clone().add(b).multiplyScalar(0.5)
@@ -217,20 +249,21 @@ function setupAnimation(THREE, ctx, canvasRef) {
     dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize())
     dummy.scale.set(1, 1, 1)
     dummy.updateMatrix()
-    segments.setMatrixAt(segmentCursor, dummy.matrix)
-    segments.setColorAt(segmentCursor, color)
-    segmentCursor += 1
-    segments.count = segmentCursor
-    segments.instanceColor.needsUpdate = true
+    entry.segments.setMatrixAt(entry.segmentCursor, dummy.matrix)
+    entry.segmentCursor += 1
+    entry.segments.count = entry.segmentCursor
+    entry.segments.instanceMatrix.needsUpdate = true
   }
 
   function resetScene() {
     occupied.clear()
     pipes = []
-    segmentCursor = 0
-    jointCursor = 0
-    segments.count = 0
-    joints.count = 0
+    for (const entry of perColor) {
+      entry.segmentCursor = 0
+      entry.jointCursor = 0
+      entry.segments.count = 0
+      entry.joints.count = 0
+    }
     for (let i = 0; i < MAX_CONCURRENT_PIPES; i += 1) pipes.push(new Pipe(occupied))
   }
   resetScene()
@@ -244,11 +277,16 @@ function setupAnimation(THREE, ctx, canvasRef) {
     // is replaced in place, never removed, so there's nothing to filter.
     for (let i = 0; i < pipes.length; i += 1) {
       const pipe = pipes[i]
-      color.set(pipe.color)
       const result = pipe.step(occupied)
       if (result) {
-        placeSegment(result.from, result.to)
-        placeJoint(result.to)
+        placeSegment(pipe.color, result.from, result.to)
+        // Only at an actual turn, like the real app's ball/elbow joints —
+        // not on every cell, which just clutters a straight run with a
+        // sphere at both ends of every segment. The corner itself is the
+        // cell the pipe turned *at* (from), not the first cell of its new
+        // direction (to) — placing it at `to` put every joint one cell
+        // past the actual bend.
+        if (result.turned) placeJoint(pipe.color, result.from)
       } else {
         pipes[i] = new Pipe(occupied)
       }
@@ -282,22 +320,57 @@ function setupAnimation(THREE, ctx, canvasRef) {
   const resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(canvasRef.current)
 
+  let tornDown = false
+  function teardown() {
+    if (tornDown) return
+    tornDown = true
+    running = false
+    cancelAnimationFrame(rafId)
+    resizeObserver.disconnect()
+    document.removeEventListener('visibilitychange', handleVisibility)
+    canvasRef.current?.removeEventListener('webglcontextlost', handleContextLost)
+    segmentGeo.dispose()
+    jointGeo.dispose()
+    for (const entry of perColor) entry.material.dispose()
+    renderer.dispose()
+  }
+
+  // A frame throwing (or the GPU context dying under it) shouldn't leave a
+  // frozen or corrupted canvas on screen forever with nothing recovering
+  // it — tear everything down and let the caller fall back to the static
+  // image instead, the same as if three.js/WebGL had never come up at all.
+  function fail() {
+    teardown()
+    onFailure()
+  }
+
   function frame(now) {
     if (!running) return
-    if (now - lastTick >= TICK_MS) {
-      lastTick = now
-      tick()
+    try {
+      if (now - lastTick >= TICK_MS) {
+        lastTick = now
+        tick()
+      }
+      angle += 0.0018
+      camera.position.set(
+        center.x + Math.cos(angle) * radius,
+        center.y + radius * 0.55,
+        center.z + Math.sin(angle) * radius,
+      )
+      camera.lookAt(center)
+      renderer.render(scene, camera)
+    } catch {
+      fail()
+      return
     }
-    angle += 0.0018
-    camera.position.set(
-      center.x + Math.cos(angle) * radius,
-      center.y + radius * 0.55,
-      center.z + Math.sin(angle) * radius,
-    )
-    camera.lookAt(center)
-    renderer.render(scene, camera)
     rafId = requestAnimationFrame(frame)
   }
+
+  function handleContextLost(event) {
+    event.preventDefault()
+    fail()
+  }
+  canvasRef.current?.addEventListener('webglcontextlost', handleContextLost)
 
   function handleVisibility() {
     running = document.visibilityState === 'visible'
@@ -311,14 +384,5 @@ function setupAnimation(THREE, ctx, canvasRef) {
   document.addEventListener('visibilitychange', handleVisibility)
   rafId = requestAnimationFrame(frame)
 
-  return () => {
-    running = false
-    cancelAnimationFrame(rafId)
-    resizeObserver.disconnect()
-    document.removeEventListener('visibilitychange', handleVisibility)
-    segmentGeo.dispose()
-    jointGeo.dispose()
-    material.dispose()
-    renderer.dispose()
-  }
+  return teardown
 }
