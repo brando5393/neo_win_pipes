@@ -252,7 +252,9 @@ pub fn draw(
                         outcome.sim_changed = true;
                     }
                 });
-                ui.label(RichText::new("Custom colors:").weak());
+                ui.label(
+                    RichText::new("Custom colors — type a hex code or R, G, B directly:").weak(),
+                );
                 let mut remove_index = None;
                 let palette_len = config.sim.palette.len();
                 for (i, color) in config.sim.palette.iter_mut().enumerate() {
@@ -264,6 +266,55 @@ pub fn draw(
                             color.b = rgb[2];
                             outcome.sim_changed = true;
                         }
+
+                        // Text buffers live in egui's own per-widget memory
+                        // (keyed by swatch index) rather than being
+                        // reformatted from `color` every frame, so a
+                        // half-typed hex code isn't stomped on before the
+                        // user finishes typing it. They're only resynced
+                        // from the live color while the field doesn't have
+                        // focus — which also covers picking a color via the
+                        // swatch above, or a theme/preset button elsewhere.
+                        let hex_id = ui.id().with(("palette_hex", i));
+                        let mut hex_buf = ctx
+                            .data(|d| d.get_temp::<String>(hex_id))
+                            .unwrap_or_else(|| color_to_hex(*color));
+                        let hex_resp = ui.add(
+                            egui::TextEdit::singleline(&mut hex_buf)
+                                .desired_width(64.0)
+                                .hint_text("#RRGGBB"),
+                        );
+                        if hex_resp.changed() {
+                            if let Some(parsed) = hex_to_color(&hex_buf) {
+                                *color = parsed;
+                                outcome.sim_changed = true;
+                            }
+                        }
+                        if !hex_resp.has_focus() {
+                            hex_buf = color_to_hex(*color);
+                        }
+                        ctx.data_mut(|d| d.insert_temp(hex_id, hex_buf));
+
+                        let rgb_id = ui.id().with(("palette_rgb", i));
+                        let mut rgb_buf = ctx
+                            .data(|d| d.get_temp::<String>(rgb_id))
+                            .unwrap_or_else(|| color_to_rgb_text(*color));
+                        let rgb_resp = ui.add(
+                            egui::TextEdit::singleline(&mut rgb_buf)
+                                .desired_width(84.0)
+                                .hint_text("R, G, B"),
+                        );
+                        if rgb_resp.changed() {
+                            if let Some(parsed) = rgb_text_to_color(&rgb_buf) {
+                                *color = parsed;
+                                outcome.sim_changed = true;
+                            }
+                        }
+                        if !rgb_resp.has_focus() {
+                            rgb_buf = color_to_rgb_text(*color);
+                        }
+                        ctx.data_mut(|d| d.insert_temp(rgb_id, rgb_buf));
+
                         if palette_len > 1 && ui.small_button("remove").clicked() {
                             remove_index = Some(i);
                         }
@@ -598,6 +649,69 @@ fn open_in_browser_checked(url: &str) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|err| err.to_string())
+}
+
+/// Formats as `#RRGGBB`, the canonical form shown whenever the hex field in
+/// the color palette editor isn't currently focused (see `draw`).
+fn color_to_hex(color: Color) -> String {
+    format!(
+        "#{:02X}{:02X}{:02X}",
+        (color.r.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (color.g.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (color.b.clamp(0.0, 1.0) * 255.0).round() as u8,
+    )
+}
+
+/// Accepts `#RRGGBB` or `RRGGBB`, case-insensitive. `None` on anything else
+/// (wrong length, non-hex characters) — the caller leaves the palette color
+/// untouched rather than guessing at a partial/invalid value.
+fn hex_to_color(input: &str) -> Option<Color> {
+    let s = input.trim().trim_start_matches('#');
+    if s.len() != 6 || !s.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+    Some(Color::new(
+        r as f32 / 255.0,
+        g as f32 / 255.0,
+        b as f32 / 255.0,
+    ))
+}
+
+/// Formats as `R, G, B` (each 0-255), the canonical form shown whenever the
+/// RGB field in the color palette editor isn't currently focused.
+fn color_to_rgb_text(color: Color) -> String {
+    format!(
+        "{}, {}, {}",
+        (color.r.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (color.g.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (color.b.clamp(0.0, 1.0) * 255.0).round() as u8,
+    )
+}
+
+/// Accepts exactly three 0-255 integers separated by commas and/or
+/// whitespace (`"255, 128, 0"`, `"255 128 0"`, `"255,128,0"`). `None` for
+/// anything else, including an out-of-range channel.
+fn rgb_text_to_color(input: &str) -> Option<Color> {
+    let parts: Vec<&str> = input
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let mut channels = [0u8; 3];
+    for (i, part) in parts.iter().enumerate() {
+        let value: u16 = part.parse().ok()?;
+        channels[i] = u8::try_from(value).ok()?;
+    }
+    Some(Color::new(
+        channels[0] as f32 / 255.0,
+        channels[1] as f32 / 255.0,
+        channels[2] as f32 / 255.0,
+    ))
 }
 
 fn neon_palette() -> Vec<Color> {
@@ -1049,5 +1163,55 @@ mod theme_tests {
             );
             assert!(!config.sim.palette.is_empty());
         }
+    }
+}
+
+#[cfg(test)]
+mod palette_text_input_tests {
+    use super::*;
+
+    #[test]
+    fn hex_round_trips_through_color() {
+        let color = hex_to_color("#22D3EE").unwrap();
+        assert_eq!(color_to_hex(color), "#22D3EE");
+    }
+
+    #[test]
+    fn hex_parsing_accepts_no_hash_and_lowercase() {
+        let with_hash = hex_to_color("#ff6600").unwrap();
+        let without_hash = hex_to_color("ff6600").unwrap();
+        assert_eq!(with_hash, without_hash);
+        assert_eq!(color_to_hex(with_hash), "#FF6600");
+    }
+
+    #[test]
+    fn hex_parsing_rejects_wrong_length_and_non_hex_chars() {
+        assert!(hex_to_color("#fff").is_none());
+        assert!(hex_to_color("#ff66gg").is_none());
+        assert!(hex_to_color("").is_none());
+    }
+
+    #[test]
+    fn rgb_text_round_trips_through_color() {
+        let color = rgb_text_to_color("34, 211, 238").unwrap();
+        assert_eq!(color_to_rgb_text(color), "34, 211, 238");
+    }
+
+    #[test]
+    fn rgb_text_accepts_space_or_comma_separated() {
+        let comma = rgb_text_to_color("255,128,0").unwrap();
+        let space = rgb_text_to_color("255 128 0").unwrap();
+        assert_eq!(comma, space);
+    }
+
+    #[test]
+    fn rgb_text_rejects_out_of_range_and_wrong_count() {
+        assert!(
+            rgb_text_to_color("256, 0, 0").is_none(),
+            "256 is out of u8 range"
+        );
+        assert!(rgb_text_to_color("255, 0").is_none(), "only two channels");
+        assert!(rgb_text_to_color("255, 0, 0, 0").is_none(), "four channels");
+        assert!(rgb_text_to_color("red, green, blue").is_none());
     }
 }

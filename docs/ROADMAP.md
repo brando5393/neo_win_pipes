@@ -41,6 +41,23 @@ feature branch.
 - [ ] Elbow joints currently render as a (slightly smaller) sphere rather
       than a smooth torus bend — visually fine, not geometrically accurate
       to "elbow." Torus geometry is a nice-to-have polish item.
+- [ ] **GPU device-loss recovery.** Hit for real testing `pipes-settings`
+      on a Windows-on-ARM64 machine (Qualcomm Adreno X1-85, Vulkan
+      backend): after ~12 minutes and several scene resets, `wgpu` panicked
+      with "Error in Surface::get_current_texture_view: Validation Error —
+      Caused by: Parent device is lost" (`wgpu_core.rs:767`). Likely
+      triggered by a driver reset/TDR, a screen lock/sleep, or a flaky
+      Vulkan ICD on that integrated GPU — not caused by any app-level
+      change. `main.rs`'s render loop already catches ordinary
+      `wgpu::SurfaceError`s from `render_with` (`if let Err(err) =
+      render_result { tracing::warn!(...) }`), but this one bypassed that
+      entirely: a genuinely lost `Device` makes wgpu's own internal
+      error-reporting panic directly rather than returning a catchable
+      `Result`. The app's Phase 4 panic hook still caught it and showed the
+      normal fatal-error dialog instead of silently vanishing, so this
+      wasn't a silent crash — but recovering *gracefully* (recreating the
+      `Device`/`Queue`/`Surface` and resuming rather than showing the
+      error dialog) isn't implemented yet.
 - [x] Checked-in reference screenshot in `docs/screenshots/` (one so far;
       add more as the renderer evolves for visual regression comparison).
 - [x] Dissolve-on-reset: pipes shrink away over `dissolve_duration_ticks`
