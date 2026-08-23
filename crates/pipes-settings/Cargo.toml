@@ -43,6 +43,7 @@ rfd = { version = "0.14", default-features = false, features = ["xdg-portal", "a
 zbus = { version = "4", default-features = false, features = ["async-io"] }
 
 [target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Data_Xml_Dom", "UI_Notifications", "Win32_UI_Shell", "Foundation"] }
 # Used to open URLs via ShellExecuteW instead of `cmd /c start` - the
 # latter re-parses its command tail through cmd.exe's own shell grammar,
 # which treats `&` as a command separator and silently truncates any URL

@@ -289,6 +289,30 @@ for the full writeup per platform.
       given the `System32` requirement (still one UAC prompt per update).
       Free: no paid update host, no background service — just GitHub's
       own Releases API.
+- [ ] **Native OS toast for the update banner** (`crates/pipes-settings/src/notify.rs`)
+      — fires a real Windows toast notification (not just the in-app
+      banner) the first time an update check finds a newer version;
+      clicking it focuses the already-running Pipes Settings window.
+      Deliberately *not* a background/tray app that checks while the app
+      is closed — see `docs/FEATURE_IDEAS.md`'s "My own assessment"
+      section for why that would reverse this project's own
+      no-background-service design choice for very little real benefit.
+      Windows-only for now (macOS/Linux equivalents would be genuinely
+      untested platform code, which `CLAUDE.md`'s conventions rule out).
+      **Compiles and is designed per Microsoft's documented requirement
+      for classic (unpackaged) desktop apps** (`installer/main.wxs`'s
+      Start Menu shortcut now carries a matching
+      `System.AppUserModel.ID` `ShortcutProperty` — required for the
+      toast to display at all, not optional polish) **but the actual
+      toast has not been visually confirmed**: Microsoft's own guidance
+      states the Start Menu shortcut must exist (i.e. a real install)
+      before the toast will show, and this project's elevated-install
+      caveat applies here too (needs a human UAC click-through, not
+      automatable — same reason the `.msi` itself has never been
+      watched through a real elevated install by this AI). Verify by
+      installing the built `.msi` for real and confirming a toast
+      appears (and clicking it brings Pipes Settings to the front) the
+      next time it detects a newer release than the installed version.
 - [x] `.github/workflows/release.yml`: pushing a `v*.*.*` tag now builds
       and publishes the `.msi` to a GitHub Release automatically — the
       "supply side" the updater above depends on. One version number

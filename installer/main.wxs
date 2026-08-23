@@ -138,7 +138,16 @@
                     Description="Live preview and settings for the neo_win_pipes screensaver"
                     Target="[INSTALLFOLDER]pipes-settings.exe"
                     WorkingDirectory="INSTALLFOLDER"
-                    Icon="AppIcon.ico" />
+                    Icon="AppIcon.ico">
+            <!-- Required for the update-available toast notification
+                 (crates/pipes-settings/src/notify.rs) to actually display:
+                 Windows only shows a toast from an unpackaged desktop exe
+                 if a Start Menu shortcut advertises the same AUMID the
+                 process claims at runtime via
+                 SetCurrentProcessExplicitAppUserModelID. Must match the
+                 AUMID constant in notify.rs exactly. -->
+            <ShortcutProperty Key="System.AppUserModel.ID" Value="BrandonWilliams.neo_win_pipes.PipesSettings" />
+          </Shortcut>
           <!-- Programs & Features (Settings -> Apps) already lists and
                uninstalls neo_win_pipes automatically, which is standard
                MSI behavior, not something this file has to author. This

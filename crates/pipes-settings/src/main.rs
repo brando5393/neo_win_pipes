@@ -32,6 +32,7 @@ use winit::window::WindowBuilder;
 #[cfg(windows)]
 use winit::platform::windows::WindowBuilderExtWindows;
 
+mod notify;
 mod ui;
 mod update;
 
@@ -117,6 +118,11 @@ fn main() {
     let mut available_update: Option<update::AvailableUpdate> = None;
     let mut update_dismissed = false;
     let mut update_downloading = false;
+    // The toast's Activated callback fires on a WinRT callback thread, not
+    // this event loop thread, so it can only ask to be focused via a
+    // channel like this - it can't touch `window` directly.
+    let (focus_tx, focus_rx) = mpsc::channel::<()>();
+    let mut update_toast_shown = false;
 
     event_loop
         .run(move |event, elwt| match event {
@@ -137,6 +143,21 @@ fn main() {
                                 info!(version = %update.version, "update available");
                             }
                             available_update = result;
+                        }
+                        if !update_toast_shown {
+                            if let Some(update) = &available_update {
+                                update_toast_shown = true;
+                                let focus_tx = focus_tx.clone();
+                                notify::notify_update_available(
+                                    &update.version.to_string(),
+                                    move || {
+                                        let _ = focus_tx.send(());
+                                    },
+                                );
+                            }
+                        }
+                        if focus_rx.try_recv().is_ok() {
+                            window.focus_window();
                         }
 
                         let tick_interval =
