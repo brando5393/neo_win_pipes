@@ -52,14 +52,24 @@ fn spawn_update_check() -> mpsc::Receiver<Option<update::AvailableUpdate>> {
 
 /// Downloads and launches the installer on a background thread, then
 /// exits this process — an MSI upgrade needs pipes-settings.exe not to be
-/// running so its own file can be replaced cleanly.
-fn spawn_update_install(available: update::AvailableUpdate) {
+/// running so its own file can be replaced cleanly. On the success path
+/// the process exits and `failed_tx` is moot; on any failure (network,
+/// launch, or a checksum mismatch — see `update::verify_checksum`) it
+/// reports back so the caller can stop showing "Downloading…" forever
+/// with no way to retry.
+fn spawn_update_install(available: update::AvailableUpdate, failed_tx: mpsc::Sender<()>) {
     std::thread::spawn(move || match update::download_installer(&available) {
         Ok(path) => match update::launch_installer(&path) {
             Ok(_) => std::process::exit(0),
-            Err(err) => tracing::error!(?err, "failed to launch downloaded installer"),
+            Err(err) => {
+                tracing::error!(?err, "failed to launch downloaded installer");
+                let _ = failed_tx.send(());
+            }
         },
-        Err(err) => tracing::error!(?err, "failed to download update"),
+        Err(err) => {
+            tracing::error!(?err, "failed to download update");
+            let _ = failed_tx.send(());
+        }
     });
 }
 
@@ -123,6 +133,9 @@ fn main() {
     // channel like this - it can't touch `window` directly.
     let (focus_tx, focus_rx) = mpsc::channel::<()>();
     let mut update_toast_shown = false;
+    // Same idea: spawn_update_install runs on its own thread and can't
+    // touch `update_downloading` directly.
+    let (update_failed_tx, update_failed_rx) = mpsc::channel::<()>();
 
     event_loop
         .run(move |event, elwt| match event {
@@ -171,6 +184,10 @@ fn main() {
                             }
                         }
 
+                        if update_failed_rx.try_recv().is_ok() {
+                            update_downloading = false;
+                        }
+
                         let update_banner = if update_dismissed {
                             None
                         } else {
@@ -190,7 +207,7 @@ fn main() {
                         if outcome.update_now_clicked {
                             if let Some(update) = available_update.clone() {
                                 update_downloading = true;
-                                spawn_update_install(update);
+                                spawn_update_install(update, update_failed_tx.clone());
                             }
                         }
                         if outcome.reset_to_defaults {

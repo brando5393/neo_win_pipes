@@ -580,7 +580,12 @@ human clicks once.
   already saw those on first install — but not the UAC prompt, which
   can't be skipped), then exits `pipes-settings` itself so the running
   `.exe` isn't locked while its own file gets replaced. A checksum
-  mismatch aborts the update instead of launching the installer.
+  mismatch aborts the update instead of launching the installer, and (a
+  real bug found and fixed the same day it was written) any failure on
+  this path — download, checksum, or launch — reports back over a
+  channel so the banner drops out of "Downloading…" and **Update Now**
+  becomes clickable again, instead of leaving the UI stuck forever with
+  no way to retry.
 - This only checks when `pipes-settings` happens to be open — there's no
   background service polling on a schedule. Given this is a screensaver
   utility people open occasionally to tweak settings, that's judged a

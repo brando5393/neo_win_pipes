@@ -119,6 +119,51 @@ sourced facts, alongside the research above:
   them"), that's a call for the project owner to make, not something to
   do unilaterally just because research turned it up.
 
+## Follow-up review, after shipping the update notification/checksum/security work (2026-08-23, later same day)
+
+A second pass specifically over what got built *after* the assessment
+above (update toast, download checksum verification, `SECURITY.md`),
+since that's real new surface area the first review never looked at:
+
+- **Found and fixed a real bug while reviewing**: `spawn_update_install`
+  in `main.rs` only ever logged a failure (`tracing::error!`) and never
+  reset `update_downloading` back to `false` on any error path —
+  meaning a failed download, a failed launch, *or* a checksum mismatch
+  (the new path this session added) left the UI stuck showing
+  "Downloading and launching installer…" forever, with the **Update
+  Now** button gone and no way to retry short of restarting the app. My
+  own checksum-verification change made this actually reachable in a
+  legitimate way (a mismatch is a real, expected outcome now, not just a
+  network hiccup), so it felt right to fix in the same pass rather than
+  log it and move on. Fixed with the same "background thread reports
+  back over a channel" pattern already used for the toast's focus
+  request — no new UI/error messaging added yet (see next point).
+- **Smaller, not fixed**: that same failure path still doesn't tell the
+  user *why* it failed — just quietly re-enables the Update Now button.
+  A real error message (distinct from a checksum mismatch vs. a network
+  failure) would be a reasonable small follow-up, not done here to keep
+  this pass's scope to the bug that actually strands the user.
+- **`notify.rs`'s AUMID constant and `installer/main.wxs`'s
+  `ShortcutProperty` string have to match exactly, and nothing enforces
+  that** — added a cross-reference comment in both files, but this is
+  still a plain string duplicated across a Rust file and an XML file
+  with no compiler or build-time check tying them together. Low
+  priority (it's a constant, not something that changes often), but a
+  real drift risk if either one is ever edited alone.
+- **`Checksums.jsx` and `DownloadButtons.jsx` each independently fetch
+  the same GitHub releases-latest endpoint** on page load — two requests
+  where one would do. Not a real problem at this traffic scale (GitHub's
+  unauthenticated rate limit is 60/hour/IP), and it matches this
+  codebase's existing pattern of self-contained, independently-fetching
+  components (`PipesHero`, `DownloadButtons` already work this way) — so
+  I'd call this a legitimate style choice already established here, not
+  a bug, and didn't "fix" it by introducing a shared-fetch hook that
+  would cut against that pattern.
+- Nothing else stood out as a correctness issue in this newer code —
+  `verify_checksum` is pure and covered by a real mismatch test case (and
+  a genuine typo in my own hardcoded test hash was caught by that test
+  actually failing, not by review — exactly the point of having it).
+
 ## Where this feeds in
 
 The v1 settings app (in progress) starts from the *validated* list above:

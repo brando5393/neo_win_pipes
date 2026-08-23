@@ -20,6 +20,13 @@ mod windows_impl {
     /// anywhere (no COM activator, no MSIX packaging) for a toast to show
     /// and its `Activated` event to reach this same, still-running
     /// process; that simple in-process case is all `on_activated` needs.
+    ///
+    /// Must match `installer/main.wxs`'s `System.AppUserModel.ID`
+    /// `ShortcutProperty` on the Start Menu shortcut *exactly* — nothing
+    /// enforces that at compile time or build time, so a future edit to
+    /// either string alone silently breaks the toast (it still "succeeds"
+    /// per the WinRT API, just never visibly appears — the exact failure
+    /// mode this took a real run to diagnose the first time).
     const AUMID: &str = "BrandonWilliams.neo_win_pipes.PipesSettings";
 
     pub fn notify_update_available(version: &str, on_activated: impl Fn() + Send + 'static) {
