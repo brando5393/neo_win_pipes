@@ -3,6 +3,7 @@
 //! frame from whatever `instance::build_instances` produces for the current
 //! `Scene` state.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
@@ -60,6 +61,16 @@ pub struct Renderer {
     teapot_mesh: GpuMesh,
     scene_center: Vec3,
     scene_radius: f32,
+    /// Set by `device.set_device_lost_callback` (registered once, in
+    /// `new`) the moment the GPU device actually goes away — a driver
+    /// reset/TDR, waking from sleep, etc. Real, hit-in-the-field failure
+    /// mode (see docs/ROADMAP.md): wgpu's *default* behavior on any
+    /// subsequent call into a lost device (e.g. `surface.get_current_texture`)
+    /// is to panic via its internal uncaptured-error handler, not return a
+    /// catchable `Result` — so the fix is to never make that call again
+    /// once this flag is set, checked at the very top of `draw_frame`
+    /// before touching the surface at all.
+    device_lost: Arc<AtomicBool>,
 }
 
 const VERTEX_LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
@@ -118,6 +129,15 @@ impl Renderer {
             )
             .await
             .expect("failed to create device");
+
+        let device_lost = Arc::new(AtomicBool::new(false));
+        {
+            let flag = device_lost.clone();
+            device.set_device_lost_callback(move |reason, message| {
+                tracing::error!(?reason, message, "wgpu device lost");
+                flag.store(true, Ordering::SeqCst);
+            });
+        }
 
         let caps = surface.get_capabilities(&adapter);
         let format = caps
@@ -250,17 +270,45 @@ impl Renderer {
             teapot_mesh,
             scene_center,
             scene_radius,
+            device_lost,
         }
     }
 
+    /// True once `set_device_lost_callback` has fired — see the field doc
+    /// on `device_lost`. Callers (`pipes-app`/`pipes-settings`'s event
+    /// loops) can use this to stop calling `render`/`render_with`
+    /// entirely and show/log something once instead of getting `Err`
+    /// back every single frame forever.
+    pub fn is_device_lost(&self) -> bool {
+        self.device_lost.load(Ordering::SeqCst)
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
-        if width == 0 || height == 0 {
+        if width == 0 || height == 0 || self.is_device_lost() {
             return;
         }
         self.config.width = width;
         self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
-        self.depth_view = create_depth_view(&self.device, &self.config);
+        // Same reasoning as `draw_frame`: `is_device_lost()` above can
+        // still read `false` on the exact call that would otherwise panic
+        // (e.g. a resize event arriving right as the device dies, before
+        // the callback fires), so this is caught here too rather than
+        // trusted to the flag check alone.
+        let result = crate::diagnostics::run_suppressing_fatal_dialog(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.surface.configure(&self.device, &self.config);
+                create_depth_view(&self.device, &self.config)
+            }))
+        });
+        match result {
+            Ok(depth_view) => self.depth_view = depth_view,
+            Err(_) => {
+                self.device_lost.store(true, Ordering::SeqCst);
+                tracing::error!(
+                    "caught a panic from the GPU backend while resizing — treating the device as lost"
+                );
+            }
+        }
     }
 
     /// `orbit_seconds` drives a slow camera drift around the scene (when
@@ -405,7 +453,50 @@ impl Renderer {
     /// is already written", so the two callers only differ in how they
     /// compute that uniform (a symmetric projection from a viewport size,
     /// vs. a pre-computed off-axis tile projection).
+    /// Thin wrapper around `draw_frame_inner` that's the actual fix for the
+    /// "Parent device is lost" crash (see the `device_lost` field doc):
+    /// `set_device_lost_callback` alone turned out not to be reliable
+    /// enough on its own. It can fire asynchronously relative to whatever
+    /// frame actually hits the dead device, so `is_device_lost()` can
+    /// still read `false` on the exact frame that's about to panic —
+    /// confirmed by actually calling `Device::destroy()` mid-run in a test
+    /// build and watching it panic before the callback's own log line
+    /// ever appeared. `catch_unwind` here is the part that's actually
+    /// timing-independent: whatever caused wgpu to panic internally (a
+    /// lost device being the known real-world case, but this guards any
+    /// panic from this call), it's caught, the device is marked lost right
+    /// here regardless of whether the "official" callback also ever
+    /// fires, and the caller gets an ordinary `Err` back instead of a
+    /// crashed process.
     fn draw_frame(
+        &mut self,
+        viewport: Option<(u32, u32, u32, u32)>,
+        instances: &crate::instance::InstanceSets,
+        extra: impl FnOnce(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView),
+    ) -> Result<(), wgpu::SurfaceError> {
+        if self.is_device_lost() {
+            return Err(wgpu::SurfaceError::Lost);
+        }
+
+        let result = crate::diagnostics::run_suppressing_fatal_dialog(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.draw_frame_inner(viewport, instances, extra)
+            }))
+        });
+
+        match result {
+            Ok(inner_result) => inner_result,
+            Err(_) => {
+                self.device_lost.store(true, Ordering::SeqCst);
+                tracing::error!(
+                    "caught a panic from the GPU backend mid-frame — treating the device as lost"
+                );
+                Err(wgpu::SurfaceError::Lost)
+            }
+        }
+    }
+
+    fn draw_frame_inner(
         &mut self,
         viewport: Option<(u32, u32, u32, u32)>,
         instances: &crate::instance::InstanceSets,

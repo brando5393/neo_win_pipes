@@ -41,23 +41,42 @@ feature branch.
 - [ ] Elbow joints currently render as a (slightly smaller) sphere rather
       than a smooth torus bend — visually fine, not geometrically accurate
       to "elbow." Torus geometry is a nice-to-have polish item.
-- [ ] **GPU device-loss recovery.** Hit for real testing `pipes-settings`
-      on a Windows-on-ARM64 machine (Qualcomm Adreno X1-85, Vulkan
-      backend): after ~12 minutes and several scene resets, `wgpu` panicked
-      with "Error in Surface::get_current_texture_view: Validation Error —
-      Caused by: Parent device is lost" (`wgpu_core.rs:767`). Likely
-      triggered by a driver reset/TDR, a screen lock/sleep, or a flaky
-      Vulkan ICD on that integrated GPU — not caused by any app-level
-      change. `main.rs`'s render loop already catches ordinary
-      `wgpu::SurfaceError`s from `render_with` (`if let Err(err) =
-      render_result { tracing::warn!(...) }`), but this one bypassed that
-      entirely: a genuinely lost `Device` makes wgpu's own internal
-      error-reporting panic directly rather than returning a catchable
-      `Result`. The app's Phase 4 panic hook still caught it and showed the
-      normal fatal-error dialog instead of silently vanishing, so this
-      wasn't a silent crash — but recovering *gracefully* (recreating the
-      `Device`/`Queue`/`Surface` and resuming rather than showing the
-      error dialog) isn't implemented yet.
+- [x] **GPU device-loss crash — fixed and verified.** Hit for real testing
+      `pipes-settings` on a Windows-on-ARM64 machine (Qualcomm Adreno
+      X1-85, Vulkan backend): after ~12 minutes and several scene resets,
+      `wgpu` panicked with "Error in Surface::get_current_texture_view:
+      Validation Error — Caused by: Parent device is lost"
+      (`wgpu_core.rs:767`). Likely triggered by a driver reset/TDR, a
+      screen lock/sleep, or a flaky Vulkan ICD on that integrated GPU —
+      not caused by any app-level change. This bypassed `main.rs`'s
+      ordinary `wgpu::SurfaceError` handling entirely: a genuinely lost
+      `Device` makes wgpu's own internal error-reporting panic directly
+      rather than returning a catchable `Result`.
+      `Renderer::set_device_lost_callback` alone (the "official" wgpu API
+      for this) turned out *not* to be reliable enough on its own — it
+      can fire asynchronously relative to whatever frame actually hits
+      the dead device, confirmed by deliberately calling
+      `Device::destroy()` mid-run and watching it still panic before the
+      callback's own log line appeared. The actual, verified fix:
+      `Renderer::draw_frame`/`resize` (`crates/pipes-render/src/renderer.rs`)
+      wrap the calls that can panic in `std::panic::catch_unwind`,
+      marking the device permanently lost the moment *either* the
+      callback fires *or* a panic is caught — whichever happens first —
+      and every caller (`pipes-app`, `pipes-settings`,
+      `pipes-xscreensaver`) checks `is_device_lost()` before ever calling
+      `render`/`resize` again. The existing fatal-error panic hook is
+      told to suppress its dialog specifically for a panic caught this
+      way (`diagnostics::run_suppressing_fatal_dialog`) — still logged,
+      just not interrupting the user with a dialog for something already
+      being recovered from. **Verified by actually reproducing the
+      crash**: `Device::destroy()` called mid-run against a real build
+      (not a hypothetical), confirming the process survives, the window
+      stays intact showing its last good frame, no fatal dialog appears,
+      and the log shows the graceful path taken exactly once (not once
+      per frame). True hot recovery (recreating the `Device`/`Queue`/
+      `Surface` and resuming live rendering rather than freezing on the
+      last frame) still isn't implemented — freezing-but-alive was judged
+      a sufficient fix for what's actually been seen in the field so far.
 - [x] Checked-in reference screenshot in `docs/screenshots/` (one so far;
       add more as the renderer evolves for visual regression comparison).
 - [x] Dissolve-on-reset: pipes shrink away over `dissolve_duration_ticks`

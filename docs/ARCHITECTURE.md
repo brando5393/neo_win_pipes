@@ -91,7 +91,15 @@ structured in six parts:
   case); `Renderer::render_with` additionally takes a viewport rect and an
   `extra` closure called with the same device/queue/encoder/surface view,
   which is how `pipes-settings` layers an egui pass into the same frame
-  without `pipes-render` knowing anything about egui.
+  without `pipes-render` knowing anything about egui. Also owns GPU
+  device-loss recovery: `Device::set_device_lost_callback` alone isn't
+  reliable (it can fire too late relative to the frame that actually hits
+  the dead device — confirmed by reproducing this for real, see
+  `docs/ROADMAP.md`), so the calls that can panic are additionally
+  wrapped in `std::panic::catch_unwind`, with the fatal-error panic hook
+  (below) told to suppress its dialog for a panic caught this specific
+  way. Every caller checks `Renderer::is_device_lost()` before calling
+  `render`/`resize` again once it's set.
 - **`config`** — `AppConfig`: everything a settings session can tune
   (`SimConfig`, `PipeVisuals`, `CameraConfig`, tick speed), serialized as
   TOML to the OS's standard per-user config directory (via the
@@ -107,6 +115,10 @@ structured in six parts:
   `install_panic_hook()` shows a native fatal-error dialog on an unhandled
   panic (plain-English explanation, the real log file path, and the raw
   technical detail, in that order — see [LOGGING.md](LOGGING.md)).
+  `run_suppressing_fatal_dialog()` lets a caller that's about to
+  `catch_unwind` its own expected panic (currently just the renderer's
+  device-loss guard above) skip the dialog for that specific panic
+  without disabling it globally — the hook still always logs.
 - **`app_icon`** — the window/taskbar icon, built from an embedded raw
   RGBA pixel dump via `winit::window::Icon`. Kept separate from the
   `.ico` embedded into the `.exe` itself (via `build.rs` + `winres`,

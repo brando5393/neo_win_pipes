@@ -70,9 +70,42 @@ pub fn install_panic_hook(app_name: &str) {
     std::panic::set_hook(Box::new(move |info| {
         default_hook(info);
         let message = panic_message(info);
-        tracing::error!(panic_message = %message, "unhandled panic — showing error dialog");
-        show_fatal_error_dialog(&app_name, &message);
+        if SUPPRESS_FATAL_DIALOG.with(std::cell::Cell::get) {
+            // A caller wrapped this panic in `run_suppressing_fatal_dialog`
+            // (currently just `pipes-render::Renderer`'s GPU-device-lost
+            // guard) and is about to catch_unwind it, not let the process
+            // die — still worth logging, just not worth interrupting the
+            // user with a dialog for something already being recovered
+            // from.
+            tracing::error!(panic_message = %message, "panic caught by a device-loss guard — dialog suppressed");
+        } else {
+            tracing::error!(panic_message = %message, "unhandled panic — showing error dialog");
+            show_fatal_error_dialog(&app_name, &message);
+        }
     }));
+}
+
+thread_local! {
+    /// Set around a `catch_unwind` call that's specifically expecting to
+    /// handle its own panic (see `Renderer::draw_frame`/`resize`) — the
+    /// panic hook above still runs and still logs (hooks always run
+    /// before unwinding starts, whether or not something later catches
+    /// it), it just skips the native fatal-error dialog when this is set,
+    /// since the caller is already recovering gracefully. Thread-local
+    /// rather than a global flag/mutex since the render loop this guards
+    /// only ever runs on one thread.
+    static SUPPRESS_FATAL_DIALOG: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `f`, suppressing the fatal-error dialog (but not the log line) for
+/// any panic that occurs inside it — pair this with a `catch_unwind`
+/// inside `f` itself; this alone doesn't stop a panic from propagating,
+/// it only changes what the panic hook does if one fires while it's set.
+pub fn run_suppressing_fatal_dialog<R>(f: impl FnOnce() -> R) -> R {
+    SUPPRESS_FATAL_DIALOG.with(|flag| flag.set(true));
+    let result = f();
+    SUPPRESS_FATAL_DIALOG.with(|flag| flag.set(false));
+    result
 }
 
 fn panic_message(info: &std::panic::PanicHookInfo<'_>) -> String {

@@ -92,19 +92,24 @@ fn main() {
             }
         }
 
-        let sets = build_instances(&scene, &app_config.visuals);
-        let orbit_seconds = start.elapsed().as_secs_f32();
-        if let Err(err) = renderer.render(orbit_seconds, &app_config.camera, None, &sets) {
-            match err {
-                wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
-                    let (w, h) = target.size();
-                    renderer.resize(w, h);
+        // See the matching comment in pipes-app/src/main.rs: a real device
+        // loss must never reach `resize` (which would call into the same
+        // dead device), so it's checked separately and first.
+        if !renderer.is_device_lost() {
+            let sets = build_instances(&scene, &app_config.visuals);
+            let orbit_seconds = start.elapsed().as_secs_f32();
+            if let Err(err) = renderer.render(orbit_seconds, &app_config.camera, None, &sets) {
+                match err {
+                    wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+                        let (w, h) = target.size();
+                        renderer.resize(w, h);
+                    }
+                    wgpu::SurfaceError::OutOfMemory => {
+                        tracing::error!("GPU out of memory, exiting");
+                        return;
+                    }
+                    wgpu::SurfaceError::Timeout => {}
                 }
-                wgpu::SurfaceError::OutOfMemory => {
-                    tracing::error!("GPU out of memory, exiting");
-                    return;
-                }
-                wgpu::SurfaceError::Timeout => {}
             }
         }
 

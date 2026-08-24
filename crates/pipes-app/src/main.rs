@@ -504,21 +504,35 @@ fn main() {
                                     }
                                 }
 
-                                let sets = build_instances(&inst.scene, &app_config.visuals);
-                                let orbit_seconds = start.elapsed().as_secs_f32();
-                                if let Err(err) = inst.renderer.render(
-                                    orbit_seconds,
-                                    &app_config.camera,
-                                    None,
-                                    &sets,
-                                ) {
-                                    match err {
-                                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
-                                            let size = inst.window.inner_size();
-                                            inst.renderer.resize(size.width, size.height);
+                                // Checked first, separately from the ordinary
+                                // SurfaceError match below: once the GPU
+                                // device is actually gone (driver reset,
+                                // sleep/wake, etc. - see
+                                // Renderer::is_device_lost's doc), calling
+                                // `resize` here would itself call into the
+                                // same dead device and hit the same panic
+                                // this whole check exists to avoid. So a
+                                // real device loss just stops rendering,
+                                // full stop - `set_device_lost_callback`
+                                // already logged it once when it happened.
+                                if !inst.renderer.is_device_lost() {
+                                    let sets = build_instances(&inst.scene, &app_config.visuals);
+                                    let orbit_seconds = start.elapsed().as_secs_f32();
+                                    if let Err(err) = inst.renderer.render(
+                                        orbit_seconds,
+                                        &app_config.camera,
+                                        None,
+                                        &sets,
+                                    ) {
+                                        match err {
+                                            wgpu::SurfaceError::Lost
+                                            | wgpu::SurfaceError::Outdated => {
+                                                let size = inst.window.inner_size();
+                                                inst.renderer.resize(size.width, size.height);
+                                            }
+                                            wgpu::SurfaceError::OutOfMemory => elwt.exit(),
+                                            wgpu::SurfaceError::Timeout => {}
                                         }
-                                        wgpu::SurfaceError::OutOfMemory => elwt.exit(),
-                                        wgpu::SurfaceError::Timeout => {}
                                     }
                                 }
                                 inst.window.request_redraw();
@@ -550,21 +564,30 @@ fn main() {
                                     }
                                 }
 
-                                let sets = build_instances(scene, &app_config.visuals);
-                                let orbit_seconds = start.elapsed().as_secs_f32();
-                                if let Err(err) = win.renderer.render_tile(
-                                    orbit_seconds,
-                                    &app_config.camera,
-                                    win.tile_projection,
-                                    &sets,
-                                ) {
-                                    match err {
-                                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
-                                            let size = win.window.inner_size();
-                                            win.renderer.resize(size.width, size.height);
+                                // See the matching comment in the
+                                // AllMonitors/PrimaryOnly branch above: a
+                                // real device loss must never reach
+                                // `resize` (which would call into the same
+                                // dead device), so it's checked separately
+                                // and first.
+                                if !win.renderer.is_device_lost() {
+                                    let sets = build_instances(scene, &app_config.visuals);
+                                    let orbit_seconds = start.elapsed().as_secs_f32();
+                                    if let Err(err) = win.renderer.render_tile(
+                                        orbit_seconds,
+                                        &app_config.camera,
+                                        win.tile_projection,
+                                        &sets,
+                                    ) {
+                                        match err {
+                                            wgpu::SurfaceError::Lost
+                                            | wgpu::SurfaceError::Outdated => {
+                                                let size = win.window.inner_size();
+                                                win.renderer.resize(size.width, size.height);
+                                            }
+                                            wgpu::SurfaceError::OutOfMemory => elwt.exit(),
+                                            wgpu::SurfaceError::Timeout => {}
                                         }
-                                        wgpu::SurfaceError::OutOfMemory => elwt.exit(),
-                                        wgpu::SurfaceError::Timeout => {}
                                     }
                                 }
                                 win.window.request_redraw();

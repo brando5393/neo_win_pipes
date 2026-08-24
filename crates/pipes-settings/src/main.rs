@@ -241,51 +241,61 @@ fn main() {
 
                         let sets = build_instances(&scene, &app_config.visuals);
                         let orbit_seconds = start.elapsed().as_secs_f32();
-                        let render_result = renderer.render_with(
-                            orbit_seconds,
-                            &app_config.camera,
-                            Some(preview_px),
-                            &sets,
-                            |device, queue, encoder, view| {
-                                for (id, delta) in &full_output.textures_delta.set {
-                                    egui_renderer.update_texture(device, queue, *id, delta);
-                                }
-                                egui_renderer.update_buffers(
-                                    device,
-                                    queue,
-                                    encoder,
-                                    &clipped_primitives,
-                                    &screen_descriptor,
-                                );
-                                {
-                                    let mut pass =
-                                        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                            label: Some("egui pass"),
-                                            color_attachments: &[Some(
-                                                wgpu::RenderPassColorAttachment {
-                                                    view,
-                                                    resolve_target: None,
-                                                    ops: wgpu::Operations {
-                                                        load: wgpu::LoadOp::Load,
-                                                        store: wgpu::StoreOp::Store,
-                                                    },
-                                                },
-                                            )],
-                                            depth_stencil_attachment: None,
-                                            occlusion_query_set: None,
-                                            timestamp_writes: None,
-                                        });
-                                    egui_renderer.render(
-                                        &mut pass,
+                        // Checked up front rather than left to the Err
+                        // match below: `set_device_lost_callback` already
+                        // logged this once when it actually happened, so
+                        // there's nothing more to do here every frame
+                        // except not call into the dead device again.
+                        let render_result = if renderer.is_device_lost() {
+                            Ok(())
+                        } else {
+                            renderer.render_with(
+                                orbit_seconds,
+                                &app_config.camera,
+                                Some(preview_px),
+                                &sets,
+                                |device, queue, encoder, view| {
+                                    for (id, delta) in &full_output.textures_delta.set {
+                                        egui_renderer.update_texture(device, queue, *id, delta);
+                                    }
+                                    egui_renderer.update_buffers(
+                                        device,
+                                        queue,
+                                        encoder,
                                         &clipped_primitives,
                                         &screen_descriptor,
                                     );
-                                }
-                                for id in &full_output.textures_delta.free {
-                                    egui_renderer.free_texture(id);
-                                }
-                            },
-                        );
+                                    {
+                                        let mut pass = encoder.begin_render_pass(
+                                            &wgpu::RenderPassDescriptor {
+                                                label: Some("egui pass"),
+                                                color_attachments: &[Some(
+                                                    wgpu::RenderPassColorAttachment {
+                                                        view,
+                                                        resolve_target: None,
+                                                        ops: wgpu::Operations {
+                                                            load: wgpu::LoadOp::Load,
+                                                            store: wgpu::StoreOp::Store,
+                                                        },
+                                                    },
+                                                )],
+                                                depth_stencil_attachment: None,
+                                                occlusion_query_set: None,
+                                                timestamp_writes: None,
+                                            },
+                                        );
+                                        egui_renderer.render(
+                                            &mut pass,
+                                            &clipped_primitives,
+                                            &screen_descriptor,
+                                        );
+                                    }
+                                    for id in &full_output.textures_delta.free {
+                                        egui_renderer.free_texture(id);
+                                    }
+                                },
+                            )
+                        };
                         if let Err(err) = render_result {
                             tracing::warn!(?err, "render error");
                         }
