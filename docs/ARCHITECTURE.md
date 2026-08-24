@@ -623,6 +623,15 @@ succeeds but nothing visibly appears (confirmed by actually running a
 bare dev build and watching the screen — real "run what you built"
 practice, not something inferred from docs).
 
+A second, separate gotcha shipped in the first version of this and was
+only caught by a real user on a real install (clicking the toast did
+nothing): the `ToastNotification` object was a local variable inside
+`try_notify`, dropped the instant the function returned — but a toast's
+`Activated` event only has something to fire on for as long as that
+object stays alive. Fixed by returning it wrapped in a `ToastHandle` that
+`main.rs` holds in a variable scoped to the whole event loop, not the
+function call that created it.
+
 ### The supply side: `.github/workflows/release.yml`
 
 The updater above only works if there's actually a newer GitHub Release

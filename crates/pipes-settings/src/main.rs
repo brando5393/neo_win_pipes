@@ -133,6 +133,14 @@ fn main() {
     // channel like this - it can't touch `window` directly.
     let (focus_tx, focus_rx) = mpsc::channel::<()>();
     let mut update_toast_shown = false;
+    // Must outlive the call that creates it: a `ToastNotification`'s
+    // `Activated` (click) event only has something to fire on for as
+    // long as the object itself is alive, so this holds it for the rest
+    // of the program's life instead of letting it drop the instant
+    // `notify_update_available` returns — the actual bug behind "clicking
+    // the toast doesn't open Settings" (found by a real user on a real
+    // install, since nothing here could be verified any other way).
+    let mut _update_toast: Option<notify::ToastHandle> = None;
     // Same idea: spawn_update_install runs on its own thread and can't
     // touch `update_downloading` directly.
     let (update_failed_tx, update_failed_rx) = mpsc::channel::<()>();
@@ -161,7 +169,7 @@ fn main() {
                             if let Some(update) = &available_update {
                                 update_toast_shown = true;
                                 let focus_tx = focus_tx.clone();
-                                notify::notify_update_available(
+                                _update_toast = notify::notify_update_available(
                                     &update.version.to_string(),
                                     move || {
                                         let _ = focus_tx.send(());
