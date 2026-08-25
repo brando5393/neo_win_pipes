@@ -45,6 +45,36 @@ tests`, and CI runs this exact command on all three OSes (see
   follow-up. This was a project ground rule from day one, not a
   retrofit — see the commit history.
 
+## Benchmarks
+
+`pipes-core` and `pipes-render` each have a [Criterion](https://bheisler.github.io/criterion.rs/book/)
+benchmark suite (`benches/`), separate from `cargo test`:
+
+```sh
+cargo bench -p pipes-core      # Scene::step — the simulation tick every front-end calls
+cargo bench -p pipes-render    # build_instances — rebuilt from scratch every frame
+```
+
+Each has a `default_config` case (the shipped defaults) and a `large_scene`
+case (a much bigger grid/pipe count, stressing the same path a user could
+reach via the settings app's "Grid size & reset"/"Pipe style & count"
+panels). As of this writing, on this project's own dev machine (Qualcomm
+Adreno X1-85, Windows-on-ARM64):
+
+| Benchmark | default_config | large_scene (64³ grid, 200 pipes) |
+|---|---|---|
+| `scene_step` | ~3.7 µs | ~159 µs |
+| `build_instances` | ~77 µs | ~14 ms |
+
+The gap matters: `build_instances` at the large-scene scale costs ~14ms —
+most of a 60fps frame's entire 16.6ms budget — while `scene_step` at the
+*same* scale is 88x cheaper. **The simulation logic is not what limits how
+large a scene you can run smoothly; rebuilding the per-frame instance
+buffers is.** Keep this in mind before assuming a slowdown is `pipes-core`'s
+fault, and see `crates/pipes-settings/src/benchmark.rs` for the in-app
+benchmark end users can run themselves against their own real GPU (these
+Criterion benchmarks are CPU-only and don't touch a `Renderer` at all).
+
 ## Windows on ARM64 caveat (workaround, not a project requirement)
 
 If `cargo build` fails while linking a build script with an error like

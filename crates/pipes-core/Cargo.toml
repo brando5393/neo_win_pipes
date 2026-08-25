@@ -10,3 +10,10 @@ rand = { workspace = true }
 rand_pcg = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "scene_step"
+harness = false

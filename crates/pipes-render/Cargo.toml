@@ -24,3 +24,8 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_Wind
 
 [dev-dependencies]
 rand = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "build_instances"
+harness = false
