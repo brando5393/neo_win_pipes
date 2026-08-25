@@ -26,7 +26,7 @@ breakdown and what's next).
 ## Quick start
 
 ```sh
-cargo test --workspace                  # run the full test suite (55 tests)
+cargo test --workspace                  # run the full test suite (123 tests)
 cargo run -p pipes-app -- --seed 1      # the screensaver itself
 cargo run -p pipes-app -- /s            # ...or exercise the real Windows contract directly
 cargo run -p pipes-settings             # live preview + settings drawer

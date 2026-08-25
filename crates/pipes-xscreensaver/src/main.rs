@@ -12,18 +12,19 @@
 //! that already exits the process, so there's nothing extra to wire up
 //! here.
 //!
-//! **Verification caveat**, stated plainly rather than implied away: this
-//! is real, complete code, not a stub — but it's only been type-checked
-//! and clippy-checked against the `x86_64-unknown-linux-gnu` target from
-//! a Windows machine with no X server to actually run it against. See
-//! `x11_target.rs` and `docs/ROADMAP.md` for what that does and doesn't
-//! prove.
+//! **Verification status**: this has now been run for real — built and
+//! executed on Linux against both a bare `Xvfb` X server (drawing into
+//! the root window) and a live `xscreensaver` 6.08 daemon driving it as a
+//! configured hack, on an NVIDIA GPU via the Vulkan wgpu backend. That
+//! run is also what turned up the `XSCREENSAVER_WINDOW` half of the
+//! contract documented in `args.rs`. See `docs/ROADMAP.md` for the
+//! per-platform breakdown.
 
 mod args;
 #[cfg(target_os = "linux")]
 mod x11_target;
 
-use args::parse_xscreensaver_args;
+use args::{resolve_target_window, WINDOW_ENV_VAR};
 
 fn init_logging() {
     tracing_subscriber::fmt()
@@ -46,8 +47,18 @@ fn main() {
     init_logging();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let target_window = parse_xscreensaver_args(&args);
-    tracing::info!(?target_window, "pipes-xscreensaver starting");
+    // Both halves of the real contract, not just argv: the daemon passes
+    // no arguments and hands over its window purely through the
+    // environment (see args.rs). Reading only argv here meant falling back
+    // to the root window under a real xscreensaver — drawing behind its
+    // saver window, which looks like a black screen.
+    let env_window = std::env::var(WINDOW_ENV_VAR).ok();
+    let target_window = resolve_target_window(&args, env_window.as_deref());
+    tracing::info!(
+        ?target_window,
+        env_window = ?env_window,
+        "pipes-xscreensaver starting"
+    );
 
     let target = std::sync::Arc::new(X11Target::open(target_window));
 
@@ -126,7 +137,7 @@ fn main() {
     init_logging();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let target = parse_xscreensaver_args(&args);
+    let target = resolve_target_window(&args, std::env::var(WINDOW_ENV_VAR).ok().as_deref());
     tracing::info!(?target, "resolved target (parsing only works here)");
 
     tracing::error!(
