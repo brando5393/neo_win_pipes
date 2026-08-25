@@ -47,7 +47,7 @@ const FEATURES = [
 
 const STATUS = [
   { platform: 'Windows', state: 'Shipped', detail: 'Real .msi installer, auto-update checker', tone: 'good' },
-  { platform: 'Linux', state: 'Builds, unverified visually', detail: 'Real X11 rendering + .deb/AppImage, compiled clean on CI — not yet watched on a real display', tone: 'mid' },
+  { platform: 'Linux', state: 'Shipped', detail: 'Real X11 rendering via xscreensaver, .deb/AppImage, verified on real hardware (NVIDIA, Vulkan)', tone: 'good' },
   { platform: 'macOS', state: 'Not started', detail: 'No .saver bundle yet', tone: 'none' },
 ]
 

@@ -20,18 +20,23 @@ background and offers a one-click update. On top of Phase 3's `.scr`
 contract (`/s`/`/c`/`/p <hwnd>` — see `screensaver_args.rs`/`winsaver.rs`)
 and Phase 2.5's `pipes-render` + `pipes-settings`.
 
-**Linux has real code now, but an important verification gap**:
-`pipes-xscreensaver` actually renders (real X11 window/display resolution
-via `x11-dl`, reusing `pipes-render::Renderer` through a raw-window-handle
-bridge — see `x11_target.rs`), and `installer/linux/` builds a real `.deb`
-(the hack + `pipes-settings`, installed via `xscreensaver`'s own
-config-XML convention) plus a `pipes-settings`-only AppImage. All of it
-compiles, type-checks, and passes clippy against a real `ubuntu-latest`
-CI host — **but this project still has no Linux machine with an X
-server/GPU to actually watch a window render**, so whether the pipes
-simulation visually comes up correctly inside a real
-`xscreensaver`-managed window is genuinely unverified. Don't claim it's
-been "seen working" — it's been built and compiled for real, not watched.
+**Linux is verified on real hardware.** `pipes-xscreensaver` renders
+(real X11 window/display resolution via `x11-dl`, reusing
+`pipes-render::Renderer` through a raw-window-handle bridge — see
+`x11_target.rs`), and `installer/linux/` builds a real `.deb` (the hack +
+`pipes-settings`, installed via `xscreensaver`'s own config-XML
+convention) plus a `pipes-settings`-only AppImage. Beyond compiling and
+passing clippy on `ubuntu-latest` CI, this has now actually been watched
+rendering on a real machine (NVIDIA RTX 3060 Ti, wgpu Vulkan backend):
+into a bare X server's root window, and into the window a live
+`xscreensaver` 6.08 daemon hands it. That second case needed a real fix —
+the daemon passes no CLI args at all, only the `XSCREENSAVER_WINDOW`
+env var (`args::resolve_target_window` now reads both, argv taking
+precedence — see `docs/ROADMAP.md` for the full writeup). Still no macOS
+verification story, and no one's yet confirmed the packages install
+cleanly from a stock desktop's package manager end to end, but the
+core "does it render" question — this project's previous single
+biggest open assumption on Linux — is closed.
 
 **macOS is still design-only** — no code at all, no `.saver` bundle, not
 even argument parsing, because there's no way to compile Objective-C/Swift
@@ -43,7 +48,7 @@ or link a Mach-O binary from this project's Windows dev machine at all
 
 ```sh
 cargo build --workspace
-cargo test --workspace              # must pass before any change is done — 76 tests as of v0.2.1 (Phase 4, Windows)
+cargo test --workspace              # must pass before any change is done — 123 tests as of v0.4.5 (Phase 4, Windows + Linux)
 cargo run -p pipes-app -- --seed 1  # the screensaver, dev mode (behaves like /s)
 cargo run -p pipes-app -- /s        # exercise the real Windows contract directly
 cargo run -p pipes-app -- /c        # launches pipes-settings, exits
