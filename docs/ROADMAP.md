@@ -94,10 +94,54 @@ feature branch.
       (not a hypothetical), confirming the process survives, the window
       stays intact showing its last good frame, no fatal dialog appears,
       and the log shows the graceful path taken exactly once (not once
-      per frame). True hot recovery (recreating the `Device`/`Queue`/
-      `Surface` and resuming live rendering rather than freezing on the
-      last frame) still isn't implemented — freezing-but-alive was judged
-      a sufficient fix for what's actually been seen in the field so far.
+      per frame).
+- [x] **True GPU hot recovery — shipped and verified**, on top of the
+      freeze-on-last-frame fix above. `Renderer::try_recover`
+      (`crates/pipes-render/src/renderer.rs`) rebuilds the wgpu
+      `Instance`/`Adapter`/`Device`/`Queue`/`Surface` and everything built
+      from them (pipeline, camera buffer/bind group, the shared meshes)
+      from scratch, reusing the `Renderer`'s original window — kept around
+      as `Arc<dyn RenderTarget>` (a small object-safe trait bundling the
+      raw-window-handle traits) specifically so a second `Surface` could
+      be created for it later, which nothing needed before hot recovery
+      existed. `Renderer::recover_if_needed()` is what
+      `pipes-app`/`pipes-settings`/`pipes-xscreensaver` actually call each
+      frame in place of the old plain `is_device_lost()` check: attempts
+      recovery once per loss episode, then either resumes rendering or
+      falls back to the freeze behavior if recovery itself fails.
+      Two real bugs found only by actually triggering a loss (a temporary
+      `PIPES_SIMULATE_DEVICE_LOSS=<frame>` env var hook that called
+      `Device::destroy()` mid-run, removed once verified) rather than by
+      reasoning about the code:
+      1. Building the replacement `Surface` for the same window *while
+         the old (dead-device) `Surface` was still alive* silently killed
+         the whole process with no panic message at all — not the
+         "missing COPY_DST flag" validation error you'd expect from a
+         stale resource, a hard, silent exit. Fixed by making
+         `Renderer::gpu` an `Option<GpuState>`, explicitly dropped
+         (`self.gpu = None`) before the new one is built.
+      2. `pipes-settings` layers its own `egui_wgpu::Renderer` on the same
+         device (for the settings drawer UI) — recovering `Renderer`
+         alone left it pointing at the destroyed device, which surfaced
+         as "Destination buffer/texture is missing the `COPY_DST` usage
+         flag" every frame (a real, if confusing, second failure mode,
+         not the same crash recurring). Fixing that exposed a third,
+         subtler issue: recreating just `egui_wgpu::Renderer` left
+         `egui::Context` still believing the font atlas had already been
+         delivered (it had, to the now-gone renderer), so it never
+         re-included it in a future texture delta — `set_fonts()` turned
+         out to be a no-op here since it only re-uploads when the font
+         *definitions* changed, not when the receiving renderer changed.
+         Fixed by recreating `egui::Context`/`egui_winit::State` too:
+         a fresh `Context`'s first `run()` unconditionally allocates the
+         atlas from scratch, sidestepping the stale-cache question
+         entirely. Costs only that moment's transient UI state (which
+         section was expanded, etc.), not `AppConfig`.
+      Verified end-to-end in both `pipes-app` (screenshotted live pipes
+      rendering, unaffected by the fixes above since it has no egui layer)
+      and `pipes-settings` (screenshotted the 3D preview *and* the egui
+      drawer — text, buttons, icons — all correctly rendering again after
+      a real, deliberately triggered device loss).
 - [x] Checked-in reference screenshots in `docs/screenshots/` (add more as
       the renderer evolves for visual regression comparison).
 - [x] Dissolve-on-reset: pipes shrink away over `dissolve_duration_ticks`

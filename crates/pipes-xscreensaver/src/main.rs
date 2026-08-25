@@ -105,8 +105,9 @@ fn main() {
 
         // See the matching comment in pipes-app/src/main.rs: a real device
         // loss must never reach `resize` (which would call into the same
-        // dead device), so it's checked separately and first.
-        if !renderer.is_device_lost() {
+        // dead device), so it's checked (and hot recovery attempted)
+        // separately and first.
+        if renderer.recover_if_needed() {
             let sets = build_instances(&scene, &app_config.visuals);
             let orbit_seconds = start.elapsed().as_secs_f32();
             if let Err(err) = renderer.render(orbit_seconds, &app_config.camera, None, &sets) {

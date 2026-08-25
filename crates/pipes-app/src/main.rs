@@ -511,11 +511,12 @@ fn main() {
                                 // Renderer::is_device_lost's doc), calling
                                 // `resize` here would itself call into the
                                 // same dead device and hit the same panic
-                                // this whole check exists to avoid. So a
-                                // real device loss just stops rendering,
-                                // full stop - `set_device_lost_callback`
-                                // already logged it once when it happened.
-                                if !inst.renderer.is_device_lost() {
+                                // this whole check exists to avoid.
+                                // `recover_if_needed` attempts a real hot
+                                // recovery (new Device/Queue/Surface) once
+                                // per loss episode before giving up and
+                                // just freezing on the last good frame.
+                                if inst.renderer.recover_if_needed() {
                                     let sets = build_instances(&inst.scene, &app_config.visuals);
                                     let orbit_seconds = start.elapsed().as_secs_f32();
                                     if let Err(err) = inst.renderer.render(
@@ -568,9 +569,9 @@ fn main() {
                                 // AllMonitors/PrimaryOnly branch above: a
                                 // real device loss must never reach
                                 // `resize` (which would call into the same
-                                // dead device), so it's checked separately
-                                // and first.
-                                if !win.renderer.is_device_lost() {
+                                // dead device), so it's checked (and hot
+                                // recovery attempted) separately and first.
+                                if win.renderer.recover_if_needed() {
                                     let sets = build_instances(scene, &app_config.visuals);
                                     let orbit_seconds = start.elapsed().as_secs_f32();
                                     if let Err(err) = win.renderer.render_tile(

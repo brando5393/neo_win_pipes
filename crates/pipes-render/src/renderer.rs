@@ -49,7 +49,22 @@ impl GpuMesh {
     }
 }
 
-pub struct Renderer {
+/// The raw-window-handle traits `wgpu` needs for surface creation, bundled
+/// as one object-safe trait so a `Renderer` can hold onto its window as
+/// `Arc<dyn RenderTarget>` after construction — type-erasing the concrete
+/// `W` `new` was called with — instead of not keeping it at all. Needed
+/// specifically so [`Renderer::try_recover`] can rebuild a fresh
+/// `wgpu::Surface` for the *same* window after the GPU device is lost;
+/// before that existed, nothing past `new` needed the window handle again
+/// once the first `Surface` was created.
+pub trait RenderTarget: HasWindowHandle + HasDisplayHandle + Send + Sync {}
+impl<T: HasWindowHandle + HasDisplayHandle + Send + Sync> RenderTarget for T {}
+
+/// Every GPU-owned handle that depends on a live `wgpu::Device`/`Surface`
+/// pair — everything [`Renderer::new`] builds after opening the device,
+/// bundled here so [`build_gpu`] can build it fresh both at startup and
+/// again in [`Renderer::try_recover`] without duplicating that logic.
+struct GpuState {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -63,18 +78,42 @@ pub struct Renderer {
     sphere_mesh: GpuMesh,
     elbow_mesh: GpuMesh,
     teapot_mesh: GpuMesh,
-    scene_center: Vec3,
-    scene_radius: f32,
-    /// Set by `device.set_device_lost_callback` (registered once, in
-    /// `new`) the moment the GPU device actually goes away — a driver
-    /// reset/TDR, waking from sleep, etc. Real, hit-in-the-field failure
-    /// mode (see docs/ROADMAP.md): wgpu's *default* behavior on any
+    /// Set by `device.set_device_lost_callback` (registered once per
+    /// `GpuState`, here) the moment the GPU device actually goes away — a
+    /// driver reset/TDR, waking from sleep, etc. Real, hit-in-the-field
+    /// failure mode (see docs/ROADMAP.md): wgpu's *default* behavior on any
     /// subsequent call into a lost device (e.g. `surface.get_current_texture`)
     /// is to panic via its internal uncaptured-error handler, not return a
     /// catchable `Result` — so the fix is to never make that call again
     /// once this flag is set, checked at the very top of `draw_frame`
     /// before touching the surface at all.
     device_lost: Arc<AtomicBool>,
+}
+
+pub struct Renderer {
+    window: Arc<dyn RenderTarget>,
+    /// `None` only for the brief moment inside `try_recover` between
+    /// dropping the old (dead-device) `GpuState` and finishing building
+    /// its replacement — dropping the old `Surface` before creating a new
+    /// one for the same window turned out to be load-bearing, not optional
+    /// cleanup: attempting to build the new surface/device while the old
+    /// one was still alive silently killed the whole process with no panic
+    /// message at all, found only by actually triggering recovery for real
+    /// (`Device::destroy()` mid-run) and watching it happen. Every other
+    /// method reaches this through `gpu()`/`gpu_mut()`, which `.expect()`
+    /// that invariant instead of threading `Option` through 20+ call
+    /// sites that are never actually reachable during that window (nothing
+    /// else runs while `try_recover`, itself synchronous, is on the stack).
+    gpu: Option<GpuState>,
+    scene_center: Vec3,
+    scene_radius: f32,
+    /// Whether a hot-recovery attempt has already been made for the
+    /// *current* device-loss episode — see [`Renderer::recover_if_needed`].
+    /// Reset to `false` the moment recovery actually succeeds, so a later,
+    /// unrelated loss still gets its own attempt; stays `true` after a
+    /// failed attempt so callers calling every frame don't retry
+    /// (`request_adapter`/`request_device`) on every single frame forever.
+    recovery_attempted: bool,
 }
 
 const VERTEX_LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
@@ -104,202 +143,127 @@ impl Renderer {
     where
         W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static,
     {
-        let (width, height) = size;
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        });
-        let surface = instance
-            .create_surface(window)
-            .expect("failed to create surface");
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
+        // Cloned before `build_gpu` consumes the original: this copy is
+        // kept for the rest of the `Renderer`'s life so `try_recover` can
+        // build a brand new `Surface` for the same window later, after the
+        // device that owned the first one is gone.
+        let window_for_recovery: Arc<dyn RenderTarget> = window.clone();
+        let gpu = build_gpu(window, size)
             .await
-            .expect("no compatible GPU adapter found");
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("neo_win_pipes device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                },
-                None,
-            )
-            .await
-            .expect("failed to create device");
-
-        let device_lost = Arc::new(AtomicBool::new(false));
-        {
-            let flag = device_lost.clone();
-            device.set_device_lost_callback(move |reason, message| {
-                tracing::error!(?reason, message, "wgpu device lost");
-                flag.store(true, Ordering::SeqCst);
-            });
-        }
-
-        let caps = surface.get_capabilities(&adapter);
-        let format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| f.is_srgb())
-            .unwrap_or(caps.formats[0]);
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width: width.max(1),
-            height: height.max(1),
-            present_mode: caps.present_modes[0],
-            alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
-        surface.configure(&device, &config);
-
-        let depth_view = create_depth_view(&device, &config);
-
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("camera uniform"),
-            contents: bytemuck::cast_slice(&[CameraUniform {
-                view_proj: Mat4::IDENTITY.to_cols_array_2d(),
-                eye: [0.0; 4],
-            }]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("camera bind group layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    // FRAGMENT in addition to VERTEX: the chrome material's
-                    // fragment shader reads `camera.eye` too now, to build
-                    // a real per-pixel view/reflection direction — not
-                    // just `vs_main`'s view-projection transform.
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("camera bind group"),
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-        });
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("pipes shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("pipes pipeline layout"),
-            bind_group_layouts: &[&camera_bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("pipes pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[VERTEX_LAYOUT, INSTANCE_LAYOUT],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                // No backface culling: lighting uses each vertex's authored
-                // normal directly (see shader.wgsl), not a winding-derived
-                // face normal, so culling buys nothing but a very small
-                // amount of fill-rate savings at this scene's tiny polygon
-                // counts — and it isn't free to get right by hand for every
-                // procedural mesh. Concretely: the teapot's lathed body/
-                // spout came out with inconsistent winding relative to the
-                // other meshes (only caught by actually launching it and
-                // looking, not by any geometry unit test), and got silently
-                // culled to a sliver. Rather than hand-verify winding for
-                // every future mesh, disabling culling removes the whole
-                // failure mode.
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
-
-        let cylinder_mesh = GpuMesh::upload(&device, &geometry::cylinder(1.0, 16), "cylinder");
-        let cuboid_mesh = GpuMesh::upload(&device, &geometry::cuboid(1.0), "cuboid");
-        let sphere_mesh = GpuMesh::upload(&device, &geometry::sphere(1.0, 12, 16), "sphere");
-        let elbow_mesh = GpuMesh::upload(&device, &geometry::elbow(0.33, 16, 10), "elbow");
-        let teapot_mesh = GpuMesh::upload(&device, &geometry::teapot(), "teapot");
+            .expect("failed to initialize GPU state");
 
         let (bw, bh, bd) = scene_bounds;
         let scene_center = Vec3::new(bw as f32, bh as f32, bd as f32) * 0.5;
         let scene_radius = (bw.max(bh).max(bd) as f32) * 0.9;
 
         Self {
-            surface,
-            device,
-            queue,
-            config,
-            depth_view,
-            pipeline,
-            camera_buffer,
-            camera_bind_group,
-            cylinder_mesh,
-            cuboid_mesh,
-            sphere_mesh,
-            elbow_mesh,
-            teapot_mesh,
+            window: window_for_recovery,
+            gpu: Some(gpu),
             scene_center,
             scene_radius,
-            device_lost,
+            recovery_attempted: false,
+        }
+    }
+
+    fn gpu(&self) -> &GpuState {
+        self.gpu
+            .as_ref()
+            .expect("GpuState only ever missing transiently inside try_recover")
+    }
+
+    fn gpu_mut(&mut self) -> &mut GpuState {
+        self.gpu
+            .as_mut()
+            .expect("GpuState only ever missing transiently inside try_recover")
+    }
+
+    /// Attempts true hot recovery from a lost GPU device: rebuilds the
+    /// wgpu `Surface`/`Device`/`Queue` and everything built from them
+    /// (pipeline, camera buffer/bind group, the shared meshes) from
+    /// scratch, reusing this `Renderer`'s original window — see
+    /// `docs/ROADMAP.md` for why this exists on top of the
+    /// freeze-on-last-good-frame fallback `is_device_lost()` alone gives
+    /// callers. Blocking (runs `request_adapter`/`request_device` to
+    /// completion via `pollster::block_on`), same as the blocking call
+    /// every caller already makes to `Renderer::new` at startup — meant to
+    /// be called from an ordinary synchronous event-loop tick, not a hot
+    /// path. Most callers want [`Self::recover_if_needed`] instead, which
+    /// adds the "don't retry every single frame" policy this doesn't have
+    /// on its own.
+    pub fn try_recover(&mut self) -> bool {
+        let size = (self.gpu().config.width, self.gpu().config.height);
+        // Drop the dead-device `Surface` (and everything else built from
+        // it) *before* asking wgpu for a new one on the same window —
+        // building the replacement while the old surface was still alive
+        // silently killed the process with no panic at all (confirmed by
+        // actually triggering this path; see the `gpu` field doc).
+        self.gpu = None;
+        match pollster::block_on(build_gpu(self.window.clone(), size)) {
+            Ok(gpu) => {
+                self.gpu = Some(gpu);
+                tracing::info!("GPU device recovered — resuming live rendering");
+                true
+            }
+            Err(err) => {
+                tracing::error!(
+                    error = %err,
+                    "GPU device recovery failed — staying in frozen last-good-frame mode"
+                );
+                false
+            }
+        }
+    }
+
+    /// What callers actually check every frame in place of
+    /// `is_device_lost()`, right before deciding whether to call
+    /// `render`/`render_with`/`render_tile`: `true` means it's safe to
+    /// render this frame (the device was never lost, or a recovery attempt
+    /// just brought it back); `false` means stay on the last good frame,
+    /// same as checking `is_device_lost()` directly used to before hot
+    /// recovery existed. Attempts [`Self::try_recover`] at most once per
+    /// loss episode (`recovery_attempted`) rather than on every single
+    /// frame — cheap to call repeatedly once a loss is either resolved or
+    /// given up on.
+    pub fn recover_if_needed(&mut self) -> bool {
+        if !self.is_device_lost() {
+            return true;
+        }
+        if self.recovery_attempted {
+            return false;
+        }
+        self.recovery_attempted = true;
+        if self.try_recover() {
+            self.recovery_attempted = false;
+            true
+        } else {
+            false
         }
     }
 
     /// True once `set_device_lost_callback` has fired — see the field doc
-    /// on `device_lost`. Callers (`pipes-app`/`pipes-settings`'s event
-    /// loops) can use this to stop calling `render`/`render_with`
-    /// entirely and show/log something once instead of getting `Err`
-    /// back every single frame forever.
+    /// on `GpuState::device_lost` — or while `self.gpu` is transiently (or,
+    /// after a failed [`Self::try_recover`], permanently) `None`; either
+    /// way there's no live device to render with. Callers
+    /// (`pipes-app`/`pipes-settings`/`pipes-xscreensaver`'s event loops)
+    /// use this (via [`Self::recover_if_needed`]) to stop calling
+    /// `render`/`render_with`/`resize` entirely instead of getting `Err`
+    /// back — or panicking on a missing `GpuState` — every single frame
+    /// forever. Deliberately does *not* go through `gpu()`'s `.expect()`:
+    /// this is the one method that must stay callable, and answer `true`,
+    /// even when `self.gpu` is `None`.
     pub fn is_device_lost(&self) -> bool {
-        self.device_lost.load(Ordering::SeqCst)
+        self.gpu
+            .as_ref()
+            .map(|gpu| gpu.device_lost.load(Ordering::SeqCst))
+            .unwrap_or(true)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 || self.is_device_lost() {
             return;
         }
-        self.config.width = width;
-        self.config.height = height;
+        self.gpu_mut().config.width = width;
+        self.gpu_mut().config.height = height;
         // Same reasoning as `draw_frame`: `is_device_lost()` above can
         // still read `false` on the exact call that would otherwise panic
         // (e.g. a resize event arriving right as the device dies, before
@@ -307,14 +271,16 @@ impl Renderer {
         // trusted to the flag check alone.
         let result = crate::diagnostics::run_suppressing_fatal_dialog(|| {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                self.surface.configure(&self.device, &self.config);
-                create_depth_view(&self.device, &self.config)
+                self.gpu()
+                    .surface
+                    .configure(&self.gpu().device, &self.gpu().config);
+                create_depth_view(&self.gpu().device, &self.gpu().config)
             }))
         });
         match result {
-            Ok(depth_view) => self.depth_view = depth_view,
+            Ok(depth_view) => self.gpu_mut().depth_view = depth_view,
             Err(_) => {
-                self.device_lost.store(true, Ordering::SeqCst);
+                self.gpu().device_lost.store(true, Ordering::SeqCst);
                 tracing::error!(
                     "caught a panic from the GPU backend while resizing — treating the device as lost"
                 );
@@ -347,8 +313,8 @@ impl Renderer {
     }
 
     fn write_camera_uniform(&self, view_proj: Mat4, eye: Vec3) {
-        self.queue.write_buffer(
-            &self.camera_buffer,
+        self.gpu().queue.write_buffer(
+            &self.gpu().camera_buffer,
             0,
             bytemuck::cast_slice(&[CameraUniform {
                 view_proj: view_proj.to_cols_array_2d(),
@@ -433,15 +399,15 @@ impl Renderer {
     }
 
     pub fn device(&self) -> &wgpu::Device {
-        &self.device
+        &self.gpu().device
     }
 
     pub fn queue(&self) -> &wgpu::Queue {
-        &self.queue
+        &self.gpu().queue
     }
 
     pub fn surface_format(&self) -> wgpu::TextureFormat {
-        self.config.format
+        self.gpu().config.format
     }
 
     /// Same as [`Self::render`], but calls `extra` with the same device,
@@ -458,7 +424,8 @@ impl Renderer {
         instances: &crate::instance::InstanceSets,
         extra: impl FnOnce(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView),
     ) -> Result<(), wgpu::SurfaceError> {
-        let (_, _, vw, vh) = viewport.unwrap_or((0, 0, self.config.width, self.config.height));
+        let (_, _, vw, vh) =
+            viewport.unwrap_or((0, 0, self.gpu().config.width, self.gpu().config.height));
         self.update_camera(orbit_seconds, camera, (vw, vh));
         self.draw_frame(viewport, instances, extra)
     }
@@ -502,7 +469,7 @@ impl Renderer {
         match result {
             Ok(inner_result) => inner_result,
             Err(_) => {
-                self.device_lost.store(true, Ordering::SeqCst);
+                self.gpu().device_lost.store(true, Ordering::SeqCst);
                 tracing::error!(
                     "caught a panic from the GPU backend mid-frame — treating the device as lost"
                 );
@@ -517,17 +484,19 @@ impl Renderer {
         instances: &crate::instance::InstanceSets,
         extra: impl FnOnce(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView),
     ) -> Result<(), wgpu::SurfaceError> {
-        let (vx, vy, vw, vh) = viewport.unwrap_or((0, 0, self.config.width, self.config.height));
+        let (vx, vy, vw, vh) =
+            viewport.unwrap_or((0, 0, self.gpu().config.width, self.gpu().config.height));
 
-        let frame = self.surface.get_current_texture()?;
+        let frame = self.gpu().surface.get_current_texture()?;
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("frame encoder"),
-            });
+        let mut encoder =
+            self.gpu()
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("frame encoder"),
+                });
 
         let round_buf = self.instance_buffer(&instances.round_segments, "round instances");
         let square_buf = self.instance_buffer(&instances.square_segments, "square instances");
@@ -552,7 +521,7 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
+                    view: &self.gpu().depth_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -563,46 +532,46 @@ impl Renderer {
                 timestamp_writes: None,
             });
 
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            pass.set_pipeline(&self.gpu().pipeline);
+            pass.set_bind_group(0, &self.gpu().camera_bind_group, &[]);
             pass.set_viewport(vx as f32, vy as f32, vw as f32, vh as f32, 0.0, 1.0);
             pass.set_scissor_rect(vx, vy, vw, vh);
 
             self.draw_mesh_instances(
                 &mut pass,
-                &self.cylinder_mesh,
+                &self.gpu().cylinder_mesh,
                 &round_buf,
                 instances.round_segments.len() as u32,
             );
             self.draw_mesh_instances(
                 &mut pass,
-                &self.cuboid_mesh,
+                &self.gpu().cuboid_mesh,
                 &square_buf,
                 instances.square_segments.len() as u32,
             );
             self.draw_mesh_instances(
                 &mut pass,
-                &self.sphere_mesh,
+                &self.gpu().sphere_mesh,
                 &joint_buf,
                 instances.joints.len() as u32,
             );
             self.draw_mesh_instances(
                 &mut pass,
-                &self.elbow_mesh,
+                &self.gpu().elbow_mesh,
                 &elbow_buf,
                 instances.elbows.len() as u32,
             );
             self.draw_mesh_instances(
                 &mut pass,
-                &self.teapot_mesh,
+                &self.gpu().teapot_mesh,
                 &teapot_buf,
                 instances.teapots.len() as u32,
             );
         }
 
-        extra(&self.device, &self.queue, &mut encoder, &view);
+        extra(&self.gpu().device, &self.gpu().queue, &mut encoder, &view);
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.gpu().queue.submit(std::iter::once(encoder.finish()));
         frame.present();
         Ok(())
     }
@@ -612,7 +581,8 @@ impl Renderer {
             return None;
         }
         Some(
-            self.device
+            self.gpu()
+                .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(label),
                     contents: bytemuck::cast_slice(instances),
@@ -655,4 +625,191 @@ fn create_depth_view(
         view_formats: &[],
     });
     texture.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+/// Builds everything in [`GpuState`] from scratch for `window` — the whole
+/// body of what used to be [`Renderer::new`] before hot recovery needed to
+/// run it a second time, unchanged except returning `Result` instead of
+/// `.expect()`-ing each fallible step, so [`Renderer::try_recover`] can
+/// report a failed recovery attempt instead of panicking the whole process
+/// over a GPU that's still unavailable (e.g. a driver still mid-reset).
+/// [`Renderer::new`] still `.expect()`s the overall `Result` itself —
+/// failing to get a GPU at all on first launch is unrecoverable either way.
+async fn build_gpu<W>(window: Arc<W>, size: (u32, u32)) -> Result<GpuState, String>
+where
+    W: HasWindowHandle + HasDisplayHandle + Send + Sync + ?Sized + 'static,
+{
+    let (width, height) = size;
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        ..Default::default()
+    });
+    let surface = instance
+        .create_surface(window)
+        .map_err(|err| format!("failed to create surface: {err}"))?;
+
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        })
+        .await
+        .ok_or_else(|| "no compatible GPU adapter found".to_string())?;
+
+    let (device, queue) = adapter
+        .request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("neo_win_pipes device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+            },
+            None,
+        )
+        .await
+        .map_err(|err| format!("failed to create device: {err}"))?;
+
+    let device_lost = Arc::new(AtomicBool::new(false));
+    {
+        let flag = device_lost.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            tracing::error!(?reason, message, "wgpu device lost");
+            flag.store(true, Ordering::SeqCst);
+        });
+    }
+
+    let caps = surface.get_capabilities(&adapter);
+    let format = caps
+        .formats
+        .iter()
+        .copied()
+        .find(|f| f.is_srgb())
+        .unwrap_or(caps.formats[0]);
+    let config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format,
+        width: width.max(1),
+        height: height.max(1),
+        present_mode: caps.present_modes[0],
+        alpha_mode: caps.alpha_modes[0],
+        view_formats: vec![],
+        desired_maximum_frame_latency: 2,
+    };
+    surface.configure(&device, &config);
+
+    let depth_view = create_depth_view(&device, &config);
+
+    let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("camera uniform"),
+        contents: bytemuck::cast_slice(&[CameraUniform {
+            view_proj: Mat4::IDENTITY.to_cols_array_2d(),
+            eye: [0.0; 4],
+        }]),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+    let camera_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("camera bind group layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                // FRAGMENT in addition to VERTEX: the chrome material's
+                // fragment shader reads `camera.eye` too now, to build
+                // a real per-pixel view/reflection direction — not
+                // just `vs_main`'s view-projection transform.
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+    let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("camera bind group"),
+        layout: &camera_bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: camera_buffer.as_entire_binding(),
+        }],
+    });
+
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("pipes shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("pipes pipeline layout"),
+        bind_group_layouts: &[&camera_bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("pipes pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            buffers: &[VERTEX_LAYOUT, INSTANCE_LAYOUT],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: config.format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            // No backface culling: lighting uses each vertex's authored
+            // normal directly (see shader.wgsl), not a winding-derived
+            // face normal, so culling buys nothing but a very small
+            // amount of fill-rate savings at this scene's tiny polygon
+            // counts — and it isn't free to get right by hand for every
+            // procedural mesh. Concretely: the teapot's lathed body/
+            // spout came out with inconsistent winding relative to the
+            // other meshes (only caught by actually launching it and
+            // looking, not by any geometry unit test), and got silently
+            // culled to a sliver. Rather than hand-verify winding for
+            // every future mesh, disabling culling removes the whole
+            // failure mode.
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth32Float,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+    });
+
+    let cylinder_mesh = GpuMesh::upload(&device, &geometry::cylinder(1.0, 16), "cylinder");
+    let cuboid_mesh = GpuMesh::upload(&device, &geometry::cuboid(1.0), "cuboid");
+    let sphere_mesh = GpuMesh::upload(&device, &geometry::sphere(1.0, 12, 16), "sphere");
+    let elbow_mesh = GpuMesh::upload(&device, &geometry::elbow(0.33, 16, 10), "elbow");
+    let teapot_mesh = GpuMesh::upload(&device, &geometry::teapot(), "teapot");
+
+    Ok(GpuState {
+        surface,
+        device,
+        queue,
+        config,
+        depth_view,
+        pipeline,
+        camera_buffer,
+        camera_bind_group,
+        cylinder_mesh,
+        cuboid_mesh,
+        sphere_mesh,
+        elbow_mesh,
+        teapot_mesh,
+        device_lost,
+    })
 }

@@ -17,6 +17,7 @@ directories = "5"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = "0.2"
+pollster = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

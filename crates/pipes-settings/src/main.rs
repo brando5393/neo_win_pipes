@@ -111,7 +111,7 @@ fn main() {
     ));
     let mut scene = Scene::new(app_config.sim.clone(), rand_seed());
 
-    let egui_ctx = egui::Context::default();
+    let mut egui_ctx = egui::Context::default();
     let mut egui_state = egui_winit::State::new(
         egui_ctx.clone(),
         egui::ViewportId::ROOT,
@@ -250,11 +250,64 @@ fn main() {
                         let sets = build_instances(&scene, &app_config.visuals);
                         let orbit_seconds = start.elapsed().as_secs_f32();
                         // Checked up front rather than left to the Err
-                        // match below: `set_device_lost_callback` already
-                        // logged this once when it actually happened, so
-                        // there's nothing more to do here every frame
-                        // except not call into the dead device again.
-                        let render_result = if renderer.is_device_lost() {
+                        // match below: `recover_if_needed` attempts a real
+                        // hot recovery (new Device/Queue/Surface) once per
+                        // loss episode before giving up and just freezing
+                        // on the last good frame — see its doc comment.
+                        let was_lost = renderer.is_device_lost();
+                        let can_render = renderer.recover_if_needed();
+                        if was_lost && can_render {
+                            // A successful recovery gives `renderer` a
+                            // brand new wgpu::Device — `egui_renderer`
+                            // above was built against the old (now
+                            // destroyed) one, and kept using it silently
+                            // caused every buffer write into it to fail
+                            // validation ("missing the COPY_DST usage
+                            // flag") on the very next frame, which looked
+                            // like recovery itself was broken (an
+                            // immediate second "device lost") until this
+                            // was traced back to egui_renderer specifically.
+                            egui_renderer = egui_wgpu::Renderer::new(
+                                renderer.device(),
+                                renderer.surface_format(),
+                                None,
+                                1,
+                            );
+                            // The fresh renderer's texture map starts empty,
+                            // but `egui_ctx` still thinks the font atlas was
+                            // already delivered (it was, to the now-gone
+                            // renderer) and has no way to know it needs
+                            // resending — confirmed dead ends: `set_fonts`
+                            // is a no-op when the definitions are unchanged
+                            // (checked by value, not by whether a renderer
+                            // actually has the atlas), and `TextureManager`
+                            // doesn't expose the pixel data needed to
+                            // reconstruct a fresh delta by hand. A whole new
+                            // `Context`/`State` sidesteps the question
+                            // entirely: on its first `run()` it allocates
+                            // the atlas from scratch, which unconditionally
+                            // enqueues a full delta — no cache to be stale.
+                            // Costs only this rare recovery moment's
+                            // transient UI state (which section was
+                            // expanded, etc.), not app_config. Without this,
+                            // egui logged "Missing texture: Managed(0)"
+                            // forever and drew no text/icons at all after a
+                            // recovery — found by actually triggering one
+                            // and watching it happen, not by reasoning
+                            // about egui's internals up front.
+                            egui_ctx = egui::Context::default();
+                            egui_state = egui_winit::State::new(
+                                egui_ctx.clone(),
+                                egui::ViewportId::ROOT,
+                                &window,
+                                None,
+                                None,
+                            );
+                            info!(
+                                "rebuilt the egui renderer/context against the recovered GPU device"
+                            );
+                        }
+                        let render_result = if !can_render {
                             Ok(())
                         } else {
                             renderer.render_with(

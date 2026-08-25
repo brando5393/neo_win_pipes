@@ -113,8 +113,28 @@ structured in seven parts:
   see `docs/ROADMAP.md`), so the calls that can panic are additionally
   wrapped in `std::panic::catch_unwind`, with the fatal-error panic hook
   (below) told to suppress its dialog for a panic caught this specific
-  way. Every caller checks `Renderer::is_device_lost()` before calling
-  `render`/`resize` again once it's set.
+  way. On top of that, `Renderer::try_recover` does real hot recovery:
+  rebuilds the `Instance`/`Adapter`/`Device`/`Queue`/`Surface` and
+  everything built from them from scratch, reusing the window kept as
+  `Arc<dyn RenderTarget>` (a small object-safe trait over the
+  raw-window-handle traits, so `Renderer` doesn't need to be generic over
+  the concrete window type just to hold onto it). `Renderer::gpu` is
+  `Option<GpuState>`, not a bare `GpuState` — `try_recover` explicitly
+  drops the old one (dead device, dead surface) before building the
+  replacement, which turned out to be load-bearing rather than optional
+  cleanup: building the new surface while the old one for the same window
+  was still alive silently killed the process with no panic at all,
+  caught only by actually triggering recovery for real. Every caller
+  (`pipes-app`/`pipes-settings`/`pipes-xscreensaver`) calls
+  `Renderer::recover_if_needed()` each frame in place of a plain
+  `is_device_lost()` check — it attempts recovery once per loss episode,
+  then either resumes rendering or falls back to the freeze-on-last-frame
+  behavior if recovery itself fails. `pipes-settings` has one more moving
+  part on top: its `egui_wgpu::Renderer` and `egui::Context` are tied to
+  the same device, so a successful recovery also rebuilds both of those —
+  see `docs/ROADMAP.md` for why recreating just the `egui_wgpu::Renderer`
+  wasn't enough (a stale font-atlas cache in `egui::Context` needed a
+  fresh `Context` to actually clear).
 - **`tile`** — pure off-axis ("asymmetric frustum") projection math for
   `MonitorMode::Span`, with no `wgpu`/window types anywhere in the module
   — see "Multi-monitor behavior" under `pipes-app` below for the technique
