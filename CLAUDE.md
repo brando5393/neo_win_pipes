@@ -48,7 +48,7 @@ or link a Mach-O binary from this project's Windows dev machine at all
 
 ```sh
 cargo build --workspace
-cargo test --workspace               # must pass before any change is done — 125 tests as of this writing (Phase 4, Windows + Linux)
+cargo test --workspace               # must pass before any change is done — 126 tests as of this writing (Phase 4, Windows + Linux)
 cargo run -p pipes-app -- --seed 1  # the screensaver, dev mode (behaves like /s)
 cargo run -p pipes-app -- /s        # exercise the real Windows contract directly
 cargo run -p pipes-app -- /c        # launches pipes-settings, exits

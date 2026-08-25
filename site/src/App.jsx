@@ -1,4 +1,4 @@
-import { Workflow, Palette, Sparkles, SlidersHorizontal, Bug, Monitor, Gem, CheckCircle2, AlertTriangle, MinusCircle, GitFork, BookOpen, Tag, Download } from 'lucide-react'
+import { Workflow, Palette, Sparkles, SlidersHorizontal, Bug, Monitor, Gem, RefreshCw, CheckCircle2, AlertTriangle, MinusCircle, GitFork, BookOpen, Tag, Download } from 'lucide-react'
 import DownloadButtons from './components/DownloadButtons'
 import Checksums from './components/Checksums'
 import PipesHero from './components/PipesHero'
@@ -42,6 +42,11 @@ const FEATURES = [
     icon: Gem,
     title: 'A real chrome material',
     body: 'Pipes reflect a procedural sky environment, not just a flat specular highlight — genuinely shiny, tinted by each pipe\'s own color rather than washing it out to plain grey.',
+  },
+  {
+    icon: RefreshCw,
+    title: 'Shrugs off a lost GPU',
+    body: 'A driver reset, a sleep/wake cycle, or a flaky GPU used to take the whole screensaver down with it. Now it detects the loss, rebuilds the device from scratch, and resumes rendering live — no crash, no restart.',
   },
 ]
 
