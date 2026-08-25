@@ -18,6 +18,9 @@ use crate::instance::InstanceRaw;
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct CameraUniform {
     view_proj: [[f32; 4]; 4],
+    // vec3 uniform fields need 16-byte alignment in WGSL's address space
+    // layout rules; the 4th component is unused padding, not real data.
+    eye: [f32; 4],
 }
 
 struct GpuMesh {
@@ -164,6 +167,7 @@ impl Renderer {
             label: Some("camera uniform"),
             contents: bytemuck::cast_slice(&[CameraUniform {
                 view_proj: Mat4::IDENTITY.to_cols_array_2d(),
+                eye: [0.0; 4],
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -172,7 +176,11 @@ impl Renderer {
                 label: Some("camera bind group layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    // FRAGMENT in addition to VERTEX: the chrome material's
+                    // fragment shader reads `camera.eye` too now, to build
+                    // a real per-pixel view/reflection direction — not
+                    // just `vs_main`'s view-projection transform.
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -315,9 +323,12 @@ impl Renderer {
     /// `camera.orbit_enabled`), echoing the original screensaver's optional
     /// rotation — see `docs/RESEARCH.md`. Depends only on `self`/`camera`/
     /// `orbit_seconds`, so every `Renderer` built from the same sim bounds
-    /// produces an identical view matrix — the property `MonitorMode::Span`
-    /// relies on to give every monitor's tile the same eye/target.
-    fn view_matrix(&self, orbit_seconds: f32, camera: &crate::config::CameraConfig) -> Mat4 {
+    /// produces an identical view (and eye position) — the property
+    /// `MonitorMode::Span` relies on to give every monitor's tile the same
+    /// eye/target. Returns the eye position alongside the view matrix
+    /// since the chrome material's fragment shader needs a real per-pixel
+    /// view direction (`eye - world_pos`), not an assumed constant one.
+    fn view(&self, orbit_seconds: f32, camera: &crate::config::CameraConfig) -> (Mat4, Vec3) {
         let angle = if camera.orbit_enabled {
             orbit_seconds * camera.orbit_speed
         } else {
@@ -329,15 +340,16 @@ impl Renderer {
                 self.scene_radius * 0.55,
                 angle.sin() * self.scene_radius,
             );
-        Mat4::look_at_rh(eye, self.scene_center, Vec3::Y)
+        (Mat4::look_at_rh(eye, self.scene_center, Vec3::Y), eye)
     }
 
-    fn write_camera_uniform(&self, view_proj: Mat4) {
+    fn write_camera_uniform(&self, view_proj: Mat4, eye: Vec3) {
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[CameraUniform {
                 view_proj: view_proj.to_cols_array_2d(),
+                eye: [eye.x, eye.y, eye.z, 0.0],
             }]),
         );
     }
@@ -362,12 +374,12 @@ impl Renderer {
         camera: &crate::config::CameraConfig,
         viewport_wh: (u32, u32),
     ) {
-        let view = self.view_matrix(orbit_seconds, camera);
+        let (view, eye) = self.view(orbit_seconds, camera);
         let (fov_y, near, far) = self.frustum_params();
         let (vw, vh) = viewport_wh;
         let aspect = vw as f32 / vh.max(1) as f32;
         let proj = Mat4::perspective_rh(fov_y, aspect, near, far);
-        self.write_camera_uniform(proj * view);
+        self.write_camera_uniform(proj * view, eye);
     }
 
     fn update_camera_with_projection(
@@ -376,8 +388,8 @@ impl Renderer {
         camera: &crate::config::CameraConfig,
         projection: Mat4,
     ) {
-        let view = self.view_matrix(orbit_seconds, camera);
-        self.write_camera_uniform(projection * view);
+        let (view, eye) = self.view(orbit_seconds, camera);
+        self.write_camera_uniform(projection * view, eye);
     }
 
     /// Renders one frame. `viewport` is `(x, y, width, height)` in physical

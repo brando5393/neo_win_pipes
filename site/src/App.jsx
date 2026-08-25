@@ -1,4 +1,4 @@
-import { Workflow, Palette, Sparkles, SlidersHorizontal, Bug, Monitor, CheckCircle2, AlertTriangle, MinusCircle, GitFork, BookOpen, Tag, Download } from 'lucide-react'
+import { Workflow, Palette, Sparkles, SlidersHorizontal, Bug, Monitor, Gem, CheckCircle2, AlertTriangle, MinusCircle, GitFork, BookOpen, Tag, Download } from 'lucide-react'
 import DownloadButtons from './components/DownloadButtons'
 import Checksums from './components/Checksums'
 import PipesHero from './components/PipesHero'
@@ -37,6 +37,11 @@ const FEATURES = [
     icon: Monitor,
     title: 'Multi-monitor, done properly',
     body: 'Each screen gets its own independent scene by default — not a mirrored copy. Prefer one continuous scene instead? A "One big screen" mode shares a single simulation across every display, with pipes visually traveling from one monitor onto the next.',
+  },
+  {
+    icon: Gem,
+    title: 'A real chrome material',
+    body: 'Pipes reflect a procedural sky environment, not just a flat specular highlight — genuinely shiny, tinted by each pipe\'s own color rather than washing it out to plain grey.',
   },
 ]
 
