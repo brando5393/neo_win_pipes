@@ -38,7 +38,13 @@ impl Default for PipeVisuals {
         Self {
             pipe_radius: 0.18,
             ball_joint_scale: 1.4,
-            elbow_joint_scale: 1.05,
+            // Bigger than a sphere-joint scale would need to be: this is
+            // now the elbow *torus*'s major (bend) radius, and needs real
+            // room beyond its own tube thickness (`geometry::elbow`'s fixed
+            // 0.33 tube-ratio, applied in `renderer.rs`) to read as a
+            // curved bend instead of a ball — verified by actually
+            // rendering it (see CLAUDE.md's testing philosophy point 8).
+            elbow_joint_scale: 3.0,
             cap_scale: 1.1,
             teapot_scale: 3.5,
         }
@@ -50,6 +56,7 @@ pub struct InstanceSets {
     pub round_segments: Vec<InstanceRaw>,
     pub square_segments: Vec<InstanceRaw>,
     pub joints: Vec<InstanceRaw>,
+    pub elbows: Vec<InstanceRaw>,
     pub teapots: Vec<InstanceRaw>,
 }
 
@@ -79,6 +86,45 @@ fn segment_instance(a: GridPos, b: GridPos, radius: f32, color: [f32; 3]) -> Ins
 fn point_instance(p: GridPos, scale: f32, color: [f32; 3]) -> InstanceRaw {
     let model =
         Mat4::from_scale_rotation_translation(Vec3::splat(scale), Quat::IDENTITY, to_vec3(p));
+    InstanceRaw {
+        model: model.to_cols_array_2d(),
+        color,
+        _pad: 0.0,
+    }
+}
+
+/// Rotation that carries `geometry::elbow`'s canonical tangent directions
+/// (+Z, -X) onto this joint's actual incoming/outgoing pipe directions,
+/// built by mapping one orthonormal basis onto another (third axis of each
+/// via cross product, so both bases share the same handedness and the
+/// result is a pure rotation, never a reflection). `d_in`/`d_out` must be
+/// unit vectors and perpendicular — always true at a grid elbow, which is
+/// by construction a 90-degree turn between two cardinal axes.
+fn elbow_rotation(d_in: Vec3, d_out: Vec3) -> Quat {
+    let c1 = Vec3::Z;
+    let c2 = Vec3::NEG_X;
+    let c3 = c1.cross(c2);
+    let t1 = d_out;
+    let t2 = -d_in;
+    let t3 = t1.cross(t2);
+    let canonical = Mat4::from_cols(
+        c1.extend(0.0),
+        c2.extend(0.0),
+        c3.extend(0.0),
+        Vec3::ZERO.extend(1.0),
+    );
+    let target = Mat4::from_cols(
+        t1.extend(0.0),
+        t2.extend(0.0),
+        t3.extend(0.0),
+        Vec3::ZERO.extend(1.0),
+    );
+    let rotation = target * canonical.transpose();
+    Quat::from_mat4(&rotation)
+}
+
+fn elbow_instance(p: GridPos, scale: f32, rotation: Quat, color: [f32; 3]) -> InstanceRaw {
+    let model = Mat4::from_scale_rotation_translation(Vec3::splat(scale), rotation, to_vec3(p));
     InstanceRaw {
         model: model.to_cols_array_2d(),
         color,
@@ -122,12 +168,29 @@ fn push_pipe(pipe: &Pipe, visuals: &PipeVisuals, shrink: f32, sets: &mut Instanc
                 let scale = visuals.teapot_scale * radius;
                 sets.teapots.push(point_instance(path[index], scale, color));
             }
-            JointKind::Ball | JointKind::Elbow => {
-                let scale = match kind {
-                    JointKind::Ball => visuals.ball_joint_scale,
-                    JointKind::Elbow => visuals.elbow_joint_scale,
-                    JointKind::Teapot => unreachable!(),
-                } * radius;
+            JointKind::Ball => {
+                let scale = visuals.ball_joint_scale * radius;
+                sets.joints.push(point_instance(path[index], scale, color));
+            }
+            JointKind::Elbow if index > 0 => {
+                // `pipe.joints()` records a joint before the following
+                // point is appended (see `Pipe::step`), so `index + 1` is
+                // always in bounds. `index == 0` is the one real exception,
+                // guarded above: a pipe's very first step already counts as
+                // a "turn" if it differs from the spawn's initial phantom
+                // direction, with no real predecessor to bend from —
+                // handled by the fallback arm below instead.
+                let d_in = (to_vec3(path[index]) - to_vec3(path[index - 1])).normalize();
+                let d_out = (to_vec3(path[index + 1]) - to_vec3(path[index])).normalize();
+                let scale = visuals.elbow_joint_scale * radius;
+                let rotation = elbow_rotation(d_in, d_out);
+                sets.elbows
+                    .push(elbow_instance(path[index], scale, rotation, color));
+            }
+            JointKind::Elbow => {
+                // index == 0: no predecessor to bend from (see above) —
+                // fall back to the same sphere used for Ball joints.
+                let scale = visuals.elbow_joint_scale * radius;
                 sets.joints.push(point_instance(path[index], scale, color));
             }
         }
@@ -193,6 +256,53 @@ mod tests {
         assert!(
             gone_cap < 1e-5,
             "zero shrink must collapse to (approximately) nothing"
+        );
+    }
+
+    #[test]
+    fn elbow_at_the_very_first_step_falls_back_to_a_sphere_instead_of_panicking() {
+        // Regression test: `Pipe::step` can record a joint at path index 0
+        // if the pipe's very first move already differs from its spawn
+        // direction (see `Pipe::step`'s `self.joints.push((self.path.len()
+        // - 1, joint))`, called before `self.path` grows past 1 element).
+        // `push_pipe` originally assumed every joint had a real predecessor
+        // and panicked with "attempt to subtract with overflow" reading
+        // `path[index - 1]` — caught by actually running the settings app
+        // and hitting the crash, not by reading the code (see CLAUDE.md's
+        // testing philosophy point 8).
+        use pipes_core::{GridBounds, OccupancyGrid};
+        use rand::{rngs::StdRng, SeedableRng};
+
+        let mut pipe = Pipe::new(
+            0,
+            PipeStyle::Round,
+            Color::new(1.0, 1.0, 1.0),
+            GridPos::new(0, 0, 0),
+            Direction::PosX,
+        );
+        let mut grid = OccupancyGrid::new(GridBounds::new(10, 10, 10));
+        grid.occupy(GridPos::new(0, 0, 0));
+        let mut rng = StdRng::seed_from_u64(1);
+        // straight_weight: 0 forces any legal turn to win the weighted
+        // pick; elbow_probability: 1.0 forces JointKind::Elbow specifically
+        // (rather than Ball, which never hit this bug — see `push_pipe`).
+        pipe.step(&mut grid, &mut rng, 0, 1, 1.0, 0.0, 100);
+        assert_eq!(
+            pipe.joints(),
+            &[(0, JointKind::Elbow)],
+            "test setup must actually produce the index-0 elbow this test targets"
+        );
+
+        let mut sets = InstanceSets::default();
+        push_pipe(&pipe, &PipeVisuals::default(), 1.0, &mut sets);
+        assert!(
+            sets.elbows.is_empty(),
+            "no real predecessor to bend from — must fall back to a sphere, not a torus"
+        );
+        assert_eq!(
+            sets.joints.len(),
+            3,
+            "the index-0 fallback sphere plus the start and end caps"
         );
     }
 

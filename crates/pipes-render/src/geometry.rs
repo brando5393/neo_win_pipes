@@ -257,6 +257,34 @@ pub fn torus_arc(
     Mesh { vertices, indices }
 }
 
+/// A canonical quarter-torus elbow joint, unit major radius, used to render
+/// `pipes_core::JointKind::Elbow` as a real smooth bend instead of a sphere
+/// (see `docs/ROADMAP.md`'s "Elbow joints" item). Fixed orientation, meant
+/// to be rotated per-instance in `pipes-render::instance`: centered at its
+/// own sweep-circle center (matching how the joint sphere it replaces is
+/// centered exactly at the grid corner), its two tangent ends point along
+/// **+Z** (at the arc's start) and **-X** (at the arc's end) — a 90-degree
+/// bend between two perpendicular axes, which is the only kind of turn a
+/// cardinal-direction grid path ever makes. `instance.rs` rotates this pair
+/// of canonical directions onto the joint's actual incoming/outgoing pipe
+/// directions.
+///
+/// `tube_ratio` is the tube (minor) radius as a fraction of the major
+/// radius — a fixed shape constant, not a user-tunable, so this mesh can be
+/// uploaded once at startup like `sphere`/`teapot` rather than rebuilt
+/// whenever `PipeVisuals` changes; overall size still scales with
+/// `PipeVisuals::elbow_joint_scale` per-instance, same as the sphere it
+/// replaces.
+pub fn elbow(tube_ratio: f32, major_segments: u32, minor_segments: u32) -> Mesh {
+    torus_arc(
+        1.0,
+        tube_ratio,
+        std::f32::consts::FRAC_PI_2,
+        major_segments,
+        minor_segments,
+    )
+}
+
 /// Concatenates several sub-meshes into one, transforming each by its
 /// given model matrix first (positions fully transformed; normals
 /// rotated via the inverse-transpose, correct even under the non-uniform
@@ -440,6 +468,26 @@ mod tests {
             assert!(r <= major + minor + 1e-4);
             assert!(v.position[1].abs() <= minor + 1e-4);
         }
+    }
+
+    #[test]
+    fn elbow_is_well_formed_and_bends_a_quarter_turn() {
+        let mesh = elbow(0.35, 12, 8);
+        assert_well_formed(&mesh);
+        // Tangent ends: theta=0 at (1,0,0), theta=pi/2 at (0,0,1) — a
+        // quarter turn of the unit-major-radius sweep circle, per `elbow`'s
+        // doc comment on the canonical +Z / -X tangent directions.
+        let stride = 8 + 1;
+        let start = &mesh.vertices[0];
+        let end = &mesh.vertices[12 * stride];
+        assert!(
+            (start.position[0] - 1.0).abs() < 0.4,
+            "start ring not near (1,0,0)"
+        );
+        assert!(
+            (end.position[2] - 1.0).abs() < 0.4,
+            "end ring not near (0,0,1)"
+        );
     }
 
     #[test]

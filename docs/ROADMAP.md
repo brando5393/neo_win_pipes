@@ -41,9 +41,27 @@ feature branch.
       dot. See `docs/ARCHITECTURE.md#pipes-render` for why a hand-rolled
       gradient rather than a real cubemap. Confirmed live —
       [`docs/screenshots/phase2-chrome-material.png`](screenshots/phase2-chrome-material.png).
-- [ ] Elbow joints currently render as a (slightly smaller) sphere rather
-      than a smooth torus bend — visually fine, not geometrically accurate
-      to "elbow." Torus geometry is a nice-to-have polish item.
+- [x] **Elbow joints — shipped as a real smooth torus bend, not a sphere.**
+      `geometry::elbow` builds a canonical quarter-torus (fixed tube-ratio
+      0.33 of its major radius — a shape constant, not user-tunable, so
+      the mesh can upload once at startup like `sphere`/`teapot` instead
+      of rebuilding whenever `PipeVisuals` changes); `instance.rs` rotates
+      its canonical +Z/-X tangent directions onto each joint's actual
+      incoming/outgoing pipe directions via a basis-change quaternion
+      (third axis of each frame from a cross product, so the result is
+      always a proper rotation, never a mirror). `PipeVisuals::elbow_joint_scale`
+      default raised from 1.05 to 3.0 — the old value gave a sphere just
+      barely bigger than the pipe radius, which for a torus's *major*
+      radius produced almost no visible bend (verified by rendering it
+      before tuning: it read as a fat blob nearly indistinguishable from
+      a ball joint). Caught one real bug the same way: a pipe's very
+      first step can itself count as a "turn" against its spawn's initial
+      phantom direction, recording a joint at path index 0 with no real
+      predecessor to bend from — `path[index - 1]` panicked with "attempt
+      to subtract with overflow" the moment this was actually run, not
+      predicted by reading the code. Fixed with an index-0 fallback to
+      the same sphere `Ball` joints use, and a regression test that
+      forces this exact case via `Pipe::step` with a seeded RNG.
 - [x] **GPU device-loss crash — fixed and verified.** Hit for real testing
       `pipes-settings` on a Windows-on-ARM64 machine (Qualcomm Adreno
       X1-85, Vulkan backend): after ~12 minutes and several scene resets,

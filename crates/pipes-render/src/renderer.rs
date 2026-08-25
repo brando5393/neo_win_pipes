@@ -61,6 +61,7 @@ pub struct Renderer {
     cylinder_mesh: GpuMesh,
     cuboid_mesh: GpuMesh,
     sphere_mesh: GpuMesh,
+    elbow_mesh: GpuMesh,
     teapot_mesh: GpuMesh,
     scene_center: Vec3,
     scene_radius: f32,
@@ -257,6 +258,7 @@ impl Renderer {
         let cylinder_mesh = GpuMesh::upload(&device, &geometry::cylinder(1.0, 16), "cylinder");
         let cuboid_mesh = GpuMesh::upload(&device, &geometry::cuboid(1.0), "cuboid");
         let sphere_mesh = GpuMesh::upload(&device, &geometry::sphere(1.0, 12, 16), "sphere");
+        let elbow_mesh = GpuMesh::upload(&device, &geometry::elbow(0.33, 16, 10), "elbow");
         let teapot_mesh = GpuMesh::upload(&device, &geometry::teapot(), "teapot");
 
         let (bw, bh, bd) = scene_bounds;
@@ -275,6 +277,7 @@ impl Renderer {
             cylinder_mesh,
             cuboid_mesh,
             sphere_mesh,
+            elbow_mesh,
             teapot_mesh,
             scene_center,
             scene_radius,
@@ -529,6 +532,7 @@ impl Renderer {
         let round_buf = self.instance_buffer(&instances.round_segments, "round instances");
         let square_buf = self.instance_buffer(&instances.square_segments, "square instances");
         let joint_buf = self.instance_buffer(&instances.joints, "joint instances");
+        let elbow_buf = self.instance_buffer(&instances.elbows, "elbow instances");
         let teapot_buf = self.instance_buffer(&instances.teapots, "teapot instances");
 
         {
@@ -581,6 +585,12 @@ impl Renderer {
                 &self.sphere_mesh,
                 &joint_buf,
                 instances.joints.len() as u32,
+            );
+            self.draw_mesh_instances(
+                &mut pass,
+                &self.elbow_mesh,
+                &elbow_buf,
+                instances.elbows.len() as u32,
             );
             self.draw_mesh_instances(
                 &mut pass,

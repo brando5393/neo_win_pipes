@@ -73,16 +73,28 @@ structured in seven parts:
 
 - **`geometry`** — pure procedural mesh generation (unit cylinder, cuboid,
   UV sphere, plus `lathe`/`torus_arc`/`merge_meshes` — the building blocks
-  behind the `teapot()` easter-egg mesh), no GPU handle involved, so shape
-  correctness (vertex/index counts, unit normals, radius bounds) is
-  unit-tested without a window.
+  behind the `teapot()` easter-egg mesh — and `elbow`, a fixed-ratio
+  quarter-torus used for `JointKind::Elbow`, see `instance` below), no GPU
+  handle involved, so shape correctness (vertex/index counts, unit
+  normals, radius bounds) is unit-tested without a window.
 - **`instance`** — converts a live `pipes_core::Scene` into per-mesh GPU
   instance data: one cylinder or cuboid instance per path segment
-  (depending on `PipeStyle`), one sphere instance per joint (scaled up for
-  `JointKind::Ball`, slightly smaller for `Elbow`) plus start/end cap
-  spheres. Also unit-tested (e.g. every cardinal direction must produce a
-  finite model matrix — a regression guard on `Quat::from_rotation_arc`'s
-  degenerate antiparallel case).
+  (depending on `PipeStyle`), one sphere instance per `JointKind::Ball`
+  joint plus start/end cap spheres, and one `geometry::elbow` torus
+  instance per `JointKind::Elbow` joint — rotated by `elbow_rotation`,
+  which maps the mesh's canonical +Z/-X tangent directions onto the
+  joint's actual incoming/outgoing pipe directions (basis change via a
+  cross-product third axis on each side, so the result is always a proper
+  rotation, never a mirror). One real edge case: a pipe's very first step
+  can itself be a "turn" against its spawn's initial phantom direction,
+  giving an elbow joint at path index 0 with no real predecessor to bend
+  from — falls back to the same sphere `Ball` uses (`index - 1` panicked
+  with "attempt to subtract with overflow" here before the fix, caught by
+  actually running the app). Also unit-tested (e.g. every cardinal
+  direction must produce a finite model matrix — a regression guard on
+  `Quat::from_rotation_arc`'s degenerate antiparallel case; the index-0
+  elbow fallback has its own regression test that forces the case via
+  `Pipe::step` with a seeded RNG).
 - **`renderer`** — the actual wgpu setup: instanced pipeline, a chrome
   material (`shader.wgsl` — Lambertian diffuse + a procedural
   environment-reflection term, see below), depth testing, and a camera
