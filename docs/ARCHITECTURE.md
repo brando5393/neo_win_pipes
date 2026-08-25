@@ -76,25 +76,34 @@ structured in seven parts:
   behind the `teapot()` easter-egg mesh — and `elbow`, a fixed-ratio
   quarter-torus used for `JointKind::Elbow`, see `instance` below), no GPU
   handle involved, so shape correctness (vertex/index counts, unit
-  normals, radius bounds) is unit-tested without a window.
+  normals, radius bounds) is unit-tested without a window. `elbow` caps
+  both of `torus_arc`'s open tube ends with a `disk_cap` fan — fine to
+  leave open for the teapot's handle (embedded in the body from ordinary
+  viewing angles) but not for an elbow, whose ends are its only
+  connection to the adjoining pipe; each cap's rim uses the exact same
+  `(out, Y)` basis and `phi` parametrization `torus_arc` builds its ring
+  vertices from, so it lines up with the tube's last ring exactly.
 - **`instance`** — converts a live `pipes_core::Scene` into per-mesh GPU
   instance data: one cylinder or cuboid instance per path segment
   (depending on `PipeStyle`), one sphere instance per `JointKind::Ball`
   joint plus start/end cap spheres, and one `geometry::elbow` torus
-  instance per `JointKind::Elbow` joint — rotated by `elbow_rotation`,
-  which maps the mesh's canonical +Z/-X tangent directions onto the
-  joint's actual incoming/outgoing pipe directions (basis change via a
-  cross-product third axis on each side, so the result is always a proper
-  rotation, never a mirror). One real edge case: a pipe's very first step
-  can itself be a "turn" against its spawn's initial phantom direction,
-  giving an elbow joint at path index 0 with no real predecessor to bend
-  from — falls back to the same sphere `Ball` uses (`index - 1` panicked
-  with "attempt to subtract with overflow" here before the fix, caught by
-  actually running the app). Also unit-tested (e.g. every cardinal
-  direction must produce a finite model matrix — a regression guard on
-  `Quat::from_rotation_arc`'s degenerate antiparallel case; the index-0
-  elbow fallback has its own regression test that forces the case via
-  `Pipe::step` with a seeded RNG).
+  instance per `JointKind::Elbow` joint *on a `Round` pipe* — rotated by
+  `elbow_rotation`, which maps the mesh's canonical +Z/-X tangent
+  directions onto the joint's actual incoming/outgoing pipe directions
+  (basis change via a cross-product third axis on each side, so the
+  result is always a proper rotation, never a mirror). Two real edge
+  cases both fall back to the same sphere `Ball` uses instead of the
+  torus: a pipe's very first step can itself be a "turn" against its
+  spawn's initial phantom direction, giving an elbow joint at path index
+  0 with no real predecessor to bend from (`index - 1` panicked with
+  "attempt to subtract with overflow" here before the fix, caught by
+  actually running the app); and `PipeStyle::Square`, where the round
+  torus butted against a flat-faced segment left a visible step/notch at
+  the seam (caught the same way, against a real screenshot). Also
+  unit-tested (e.g. every cardinal direction must produce a finite model
+  matrix — a regression guard on `Quat::from_rotation_arc`'s degenerate
+  antiparallel case; both fallback cases above have their own regression
+  tests that force them via `Pipe::step` with a seeded RNG).
 - **`renderer`** — the actual wgpu setup: instanced pipeline, a chrome
   material (`shader.wgsl` — Lambertian diffuse + a procedural
   environment-reflection term, see below), depth testing, and a camera

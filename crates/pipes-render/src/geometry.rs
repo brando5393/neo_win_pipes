@@ -276,13 +276,77 @@ pub fn torus_arc(
 /// `PipeVisuals::elbow_joint_scale` per-instance, same as the sphere it
 /// replaces.
 pub fn elbow(tube_ratio: f32, major_segments: u32, minor_segments: u32) -> Mesh {
-    torus_arc(
+    let mut mesh = torus_arc(
         1.0,
         tube_ratio,
         std::f32::consts::FRAC_PI_2,
         major_segments,
         minor_segments,
-    )
+    );
+    // `torus_arc`'s two open ends are fine left uncapped for the teapot
+    // handle (embedded against the body from ordinary viewing angles —
+    // see its doc comment), but an elbow joint's ends are its *only*
+    // connection to the adjoining straight pipe segments and read as a
+    // hollow, curled-open shell without these — a real visual bug caught
+    // only by actually rendering a scene with elbows in it, not by
+    // reading the geometry code (see `docs/ROADMAP.md`). Each cap's
+    // rim uses the exact same `(out, Y)` basis and `phi` parametrization
+    // `torus_arc` builds its ring vertices from, so the rim lines up
+    // with the tube's last ring exactly rather than approximating it.
+    let start_out = Vec3::new(1.0, 0.0, 0.0); // torus_arc's `out` at theta=0
+    let end_out = Vec3::new(0.0, 0.0, 1.0); // torus_arc's `out` at theta=pi/2
+    let start_cap = disk_cap(
+        start_out, // center = out * major_radius(1.0)
+        start_out, // u
+        Vec3::Y,   // v
+        tube_ratio,
+        minor_segments,
+        -Vec3::Z, // outward: away from the tube, which continues toward +Z from here
+    );
+    let end_cap = disk_cap(
+        end_out,
+        end_out,
+        Vec3::Y,
+        tube_ratio,
+        minor_segments,
+        -Vec3::X, // outward: away from the tube, which arrives here heading toward -X
+    );
+    for cap in [start_cap, end_cap] {
+        let base = mesh.vertices.len() as u16;
+        mesh.vertices.extend(cap.vertices);
+        mesh.indices
+            .extend(cap.indices.into_iter().map(|i| i + base));
+    }
+    mesh
+}
+
+/// A filled disk (fan of triangles), used to cap `elbow`'s two open tube
+/// ends. `center` is the disk's center; `u`/`v` span its plane (must be
+/// perpendicular unit vectors); every vertex gets the same flat `normal` —
+/// which side of the disk that is doesn't depend on `u`/`v`'s handedness
+/// or the triangle winding below, since this renderer draws with backface
+/// culling disabled and lights from each vertex's authored normal
+/// directly, not a winding-derived face normal (see `renderer.rs`).
+fn disk_cap(center: Vec3, u: Vec3, v: Vec3, radius: f32, segments: u32, normal: Vec3) -> Mesh {
+    debug_assert!(segments >= 3);
+    let mut vertices = vec![Vertex {
+        position: center.into(),
+        normal: normal.into(),
+    }];
+    for j in 0..=segments {
+        let phi = (j as f32 / segments as f32) * std::f32::consts::TAU;
+        let (sin_p, cos_p) = phi.sin_cos();
+        let pos = center + (u * cos_p + v * sin_p) * radius;
+        vertices.push(Vertex {
+            position: pos.into(),
+            normal: normal.into(),
+        });
+    }
+    let mut indices = Vec::new();
+    for j in 1..=segments {
+        indices.extend_from_slice(&[0, j as u16, j as u16 + 1]);
+    }
+    Mesh { vertices, indices }
 }
 
 /// Concatenates several sub-meshes into one, transforming each by its

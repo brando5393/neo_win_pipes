@@ -172,14 +172,20 @@ fn push_pipe(pipe: &Pipe, visuals: &PipeVisuals, shrink: f32, sets: &mut Instanc
                 let scale = visuals.ball_joint_scale * radius;
                 sets.joints.push(point_instance(path[index], scale, color));
             }
-            JointKind::Elbow if index > 0 => {
+            JointKind::Elbow if index > 0 && pipe.style == PipeStyle::Round => {
                 // `pipe.joints()` records a joint before the following
                 // point is appended (see `Pipe::step`), so `index + 1` is
-                // always in bounds. `index == 0` is the one real exception,
+                // always in bounds. `index == 0` is one real exception,
                 // guarded above: a pipe's very first step already counts as
                 // a "turn" if it differs from the spawn's initial phantom
-                // direction, with no real predecessor to bend from —
-                // handled by the fallback arm below instead.
+                // direction, with no real predecessor to bend from. The
+                // other is `PipeStyle::Square`: `geometry::elbow` is a
+                // round tube, and butting a round bend against a
+                // flat-faced square segment left a visible step/notch at
+                // the seam — a real visual bug reported against a live
+                // screenshot, not caught by any geometry test (a round
+                // tube alone is perfectly well-formed). Both fall back to
+                // the same sphere `Ball` joints use, below.
                 let d_in = (to_vec3(path[index]) - to_vec3(path[index - 1])).normalize();
                 let d_out = (to_vec3(path[index + 1]) - to_vec3(path[index])).normalize();
                 let scale = visuals.elbow_joint_scale * radius;
@@ -188,8 +194,6 @@ fn push_pipe(pipe: &Pipe, visuals: &PipeVisuals, shrink: f32, sets: &mut Instanc
                     .push(elbow_instance(path[index], scale, rotation, color));
             }
             JointKind::Elbow => {
-                // index == 0: no predecessor to bend from (see above) —
-                // fall back to the same sphere used for Ball joints.
                 let scale = visuals.elbow_joint_scale * radius;
                 sets.joints.push(point_instance(path[index], scale, color));
             }
@@ -303,6 +307,49 @@ mod tests {
             sets.joints.len(),
             3,
             "the index-0 fallback sphere plus the start and end caps"
+        );
+    }
+
+    #[test]
+    fn square_pipe_elbows_fall_back_to_a_sphere_not_a_mismatched_round_torus() {
+        // Regression test: `geometry::elbow` is a round tube, and butting
+        // it against a flat-faced square segment left a visible step/
+        // notch at the seam — a real visual bug reported against a live
+        // screenshot (see docs/ROADMAP.md), not something a geometry-only
+        // test would ever catch (the round tube itself is well-formed).
+        use pipes_core::{GridBounds, OccupancyGrid};
+        use rand::{rngs::StdRng, SeedableRng};
+
+        let mut pipe = Pipe::new(
+            0,
+            PipeStyle::Square,
+            Color::new(1.0, 1.0, 1.0),
+            GridPos::new(5, 5, 5),
+            Direction::PosX,
+        );
+        let mut grid = OccupancyGrid::new(GridBounds::new(10, 10, 10));
+        grid.occupy(GridPos::new(5, 5, 5));
+        let mut rng = StdRng::seed_from_u64(2);
+        // A real interior elbow this time (not the index-0 edge case
+        // above): advance straight once first, then force a turn.
+        pipe.step(&mut grid, &mut rng, 1, 0, 1.0, 0.0, 100);
+        pipe.step(&mut grid, &mut rng, 0, 1, 1.0, 0.0, 100);
+        assert_eq!(
+            pipe.joints(),
+            &[(1, JointKind::Elbow)],
+            "test setup must actually produce a real interior elbow this test targets"
+        );
+
+        let mut sets = InstanceSets::default();
+        push_pipe(&pipe, &PipeVisuals::default(), 1.0, &mut sets);
+        assert!(
+            sets.elbows.is_empty(),
+            "square pipes must fall back to a sphere, not the round elbow torus"
+        );
+        assert_eq!(
+            sets.joints.len(),
+            3,
+            "the fallback sphere plus the start and end caps"
         );
     }
 

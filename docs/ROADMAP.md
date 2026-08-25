@@ -62,6 +62,29 @@ feature branch.
       predicted by reading the code. Fixed with an index-0 fallback to
       the same sphere `Ball` joints use, and a regression test that
       forces this exact case via `Pipe::step` with a seeded RNG.
+      **Two more real visual bugs, both reported against actual
+      screenshots (not caught by any geometry test — the round tube alone
+      is perfectly well-formed either way):**
+      1. The torus's two open tube ends were left uncapped (fine for the
+         teapot handle, which embeds them in the body — see
+         `torus_arc`'s doc comment — but an elbow's ends are its *only*
+         connection to the pipe) and read as a hollow, curled-open shell.
+         Fixed by adding a `disk_cap` fan at each end in `geometry::elbow`,
+         built from the exact same `(out, Y)` basis and `phi`
+         parametrization `torus_arc` uses for its ring vertices, so the
+         cap's rim lines up with the tube's last ring exactly rather than
+         approximating it.
+      2. `geometry::elbow` is a round tube — butting it against a
+         flat-faced *square* pipe segment left a visible step/notch at
+         the seam. Fixed in `instance.rs` by restricting the torus to
+         `PipeStyle::Round`; `Square` elbows fall back to the same sphere
+         `Ball` joints use (matching pre-torus behavior, which never
+         looked mismatched since a sphere is a plausible fudge for either
+         cross-section). Has its own regression test alongside the
+         index-0 one above.
+      Both fixes verified by actually re-rendering a live scene and
+      screenshotting round-pipe elbows (smooth, no curl) and square-pipe
+      elbows (clean sphere, no notch) side by side.
 - [x] **GPU device-loss crash — fixed and verified.** Hit for real testing
       `pipes-settings` on a Windows-on-ARM64 machine (Qualcomm Adreno
       X1-85, Vulkan backend): after ~12 minutes and several scene resets,
