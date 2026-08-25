@@ -793,7 +793,17 @@ where
     let cylinder_mesh = GpuMesh::upload(&device, &geometry::cylinder(1.0, 16), "cylinder");
     let cuboid_mesh = GpuMesh::upload(&device, &geometry::cuboid(1.0), "cuboid");
     let sphere_mesh = GpuMesh::upload(&device, &geometry::sphere(1.0, 12, 16), "sphere");
-    let elbow_mesh = GpuMesh::upload(&device, &geometry::elbow(0.33, 16, 10), "elbow");
+    // minor_segments matches `cylinder`'s own 16 sides (below) so the tube's
+    // cross-section is exactly as round as the straight pipe segments it
+    // connects to — the previous 10 was measurably more faceted, visible as
+    // a rounder-to-flatter mismatch right at the seam on close inspection.
+    // tube_ratio(0.35) * PipeVisuals::elbow_joint_scale(3.0) = 1.05: the
+    // tube's final radius needs to slightly *exceed* the straight segment's
+    // radius, not just match it, or the two surfaces leave a visible thin
+    // seam/notch exactly at the join — caught by actually rendering a scene
+    // and finding it, the same way `ball_joint_scale`/`cap_scale` already
+    // overshoot 1.0 for the same reason on the sphere joints.
+    let elbow_mesh = GpuMesh::upload(&device, &geometry::elbow(0.35, 20, 16), "elbow");
     let teapot_mesh = GpuMesh::upload(&device, &geometry::teapot(), "teapot");
 
     Ok(GpuState {

@@ -85,6 +85,20 @@ feature branch.
       Both fixes verified by actually re-rendering a live scene and
       screenshotting round-pipe elbows (smooth, no curl) and square-pipe
       elbows (clean sphere, no notch) side by side.
+      **One more fillet-quality pass after that**, again by actually
+      rendering and zooming into real corners rather than guessing at
+      numbers: `minor_segments` raised from 10 to 16 to match
+      `cylinder`'s own 16-sided cross-section — the tube was measurably
+      more faceted than the straight pipe it connects to, visible as a
+      rounder-to-flatter mismatch right at the seam; `major_segments`
+      raised 16 → 20 for a smoother bend curve. Separately, a real thin
+      seam/notch turned up exactly at the join on close inspection:
+      `tube_ratio(0.33) * elbow_joint_scale(3.0)` came to 0.99, meaning
+      the tube's radius fell *just under* the straight segment's own
+      radius rather than matching or exceeding it. Fixed by raising
+      `tube_ratio` to 0.35 (product 1.05) — the same small-overshoot
+      principle `ball_joint_scale`/`cap_scale` already use on the sphere
+      joints, for the same reason.
 - [x] **GPU device-loss crash — fixed and verified.** Hit for real testing
       `pipes-settings` on a Windows-on-ARM64 machine (Qualcomm Adreno
       X1-85, Vulkan backend): after ~12 minutes and several scene resets,
