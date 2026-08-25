@@ -32,6 +32,7 @@ use winit::window::WindowBuilder;
 #[cfg(windows)]
 use winit::platform::windows::WindowBuilderExtWindows;
 
+mod benchmark;
 mod notify;
 mod ui;
 mod update;
@@ -144,6 +145,11 @@ fn main() {
     // Same idea: spawn_update_install runs on its own thread and can't
     // touch `update_downloading` directly.
     let (update_failed_tx, update_failed_rx) = mpsc::channel::<()>();
+    // The in-app benchmark (see benchmark.rs) drives itself forward one
+    // real rendered frame at a time from right here, rather than owning
+    // any window/event-loop code of its own.
+    let mut benchmark_run: Option<benchmark::Run> = None;
+    let mut benchmark_report: Option<benchmark::Report> = None;
 
     event_loop
         .run(move |event, elwt| match event {
@@ -201,11 +207,28 @@ fn main() {
                         } else {
                             available_update.as_ref()
                         };
+                        let benchmark_progress = benchmark_run.as_ref().map(|run| {
+                            let (stage_number, stage_count, frames_done, frames_needed) =
+                                run.progress();
+                            ui::BenchmarkProgress {
+                                stage_name: run.current_stage_name().to_string(),
+                                stage_number,
+                                stage_count,
+                                frames_done,
+                                frames_needed,
+                            }
+                        });
                         let raw_input = egui_state.take_egui_input(&window);
                         let mut outcome = ui::Outcome::default();
                         let full_output = egui_ctx.run(raw_input, |ctx| {
-                            outcome =
-                                ui::draw(ctx, &mut app_config, update_banner, update_downloading);
+                            outcome = ui::draw(
+                                ctx,
+                                &mut app_config,
+                                update_banner,
+                                update_downloading,
+                                benchmark_progress.as_ref(),
+                                benchmark_report.as_ref(),
+                            );
                         });
                         egui_state.handle_platform_output(&window, full_output.platform_output);
 
@@ -218,10 +241,27 @@ fn main() {
                                 spawn_update_install(update, update_failed_tx.clone());
                             }
                         }
+                        if outcome.run_benchmark_clicked && benchmark_run.is_none() {
+                            let run = benchmark::Run::new();
+                            scene = populated_scene(
+                                run.current_config().clone(),
+                                rand_seed(),
+                                BENCHMARK_WARMUP_TICKS,
+                            );
+                            benchmark_run = Some(run);
+                            benchmark_report = None;
+                        }
                         if outcome.reset_to_defaults {
                             app_config = AppConfig::default();
                         }
-                        if outcome.sim_changed || outcome.reset_to_defaults {
+                        // Guarded on `benchmark_run.is_none()`: a benchmark
+                        // owns `scene` for its own stage configs while
+                        // running (see above and below), and a sim-changing
+                        // edit to some other slider mid-run would otherwise
+                        // silently overwrite it out from under the run.
+                        if (outcome.sim_changed || outcome.reset_to_defaults)
+                            && benchmark_run.is_none()
+                        {
                             scene = Scene::new(app_config.sim.clone(), rand_seed());
                         }
                         if outcome.changed() {
@@ -307,6 +347,7 @@ fn main() {
                                 "rebuilt the egui renderer/context against the recovered GPU device"
                             );
                         }
+                        let render_start = Instant::now();
                         let render_result = if !can_render {
                             Ok(())
                         } else {
@@ -357,8 +398,39 @@ fn main() {
                                 },
                             )
                         };
+                        let render_ms = render_start.elapsed().as_secs_f32() * 1000.0;
                         if let Err(err) = render_result {
                             tracing::warn!(?err, "render error");
+                        }
+
+                        // Only counts real, actually-rendered frames — a
+                        // frame skipped because the device was lost isn't
+                        // representative and would otherwise pull the
+                        // stage's average toward zero.
+                        if can_render {
+                            let stage_before = benchmark_run.as_ref().map(|r| r.progress().0);
+                            let finished = benchmark_run
+                                .as_mut()
+                                .map(|r| r.record_frame(render_ms))
+                                .unwrap_or(false);
+                            if finished {
+                                let run = benchmark_run.take().expect("finished implies Some");
+                                let report = run.into_report(
+                                    env!("CARGO_PKG_VERSION").to_string(),
+                                    renderer.adapter_name(),
+                                );
+                                info!(stages = report.stages.len(), "benchmark finished");
+                                benchmark_report = Some(report);
+                                scene = Scene::new(app_config.sim.clone(), rand_seed());
+                            } else if let Some(run) = &benchmark_run {
+                                if Some(run.progress().0) != stage_before {
+                                    scene = populated_scene(
+                                        run.current_config().clone(),
+                                        rand_seed(),
+                                        BENCHMARK_WARMUP_TICKS,
+                                    );
+                                }
+                            }
                         }
 
                         window.request_redraw();
@@ -370,6 +442,30 @@ fn main() {
             _ => {}
         })
         .expect("event loop error");
+}
+
+/// Enough ticks that even the "Heavy" benchmark stage (a 64³ grid) has a
+/// real chance to fill in before measurement starts — matches the
+/// `large_scene` case in `cargo bench -p pipes-render`'s own warmup.
+const BENCHMARK_WARMUP_TICKS: u32 = 400;
+
+/// Builds a `Scene` and immediately steps it forward `warmup_ticks` times
+/// before handing it back — used for benchmark stages, where a fixed
+/// number of rendered *frames* is not the same thing as a fixed number of
+/// simulation *ticks* (gated by `tick_interval_ms`, decoupled from frame
+/// rate). Without this, a fast GPU renders a "Heavy" stage's still-nearly-
+/// empty scene just as quickly as an actually-populated one and the
+/// benchmark ends up measuring almost nothing — confirmed by actually
+/// running it and seeing "Heavy" report a *higher* FPS than "Light", the
+/// opposite of what a real stress test should show. `Scene::step` is cheap
+/// (~µs, see `cargo bench -p pipes-core`), so doing this synchronously
+/// when a stage starts doesn't visibly block anything.
+fn populated_scene(config: pipes_core::SimConfig, seed: u64, warmup_ticks: u32) -> Scene {
+    let mut scene = Scene::new(config, seed);
+    for _ in 0..warmup_ticks {
+        scene.step();
+    }
+    scene
 }
 
 fn rand_seed() -> u64 {

@@ -371,6 +371,44 @@ that only replaces the raw single-backslash form silently redacts
 nothing, with no error to notice — this shipped broken once already for
 exactly that reason).
 
+### In-app performance benchmark (`benchmark.rs`)
+
+A "Performance" section in the settings drawer runs the *live* renderer
+through three progressively heavier preset `SimConfig`s (Light = shipped
+defaults, Medium, Heavy) and measures real per-frame time on the user's
+own GPU — see `docs/USAGE.md#system-requirements` and
+`docs/ROADMAP.md` for what this is for and two real bugs it took actually
+running it to find. `benchmark.rs` itself is pure state (a `Run` state
+machine plus the text/PDF report writers) with no window/GPU handles at
+all, so it's fully unit-testable without a renderer; `main.rs` is what
+actually drives a `Run` forward, one real rendered frame at a time:
+
+- `outcome.run_benchmark_clicked` (from `ui.rs`) creates a `Run`, swaps
+  `scene` to a `Scene` built from its first stage's config and stepped
+  forward 400 ticks before any frame is measured (`populated_scene` — a
+  fixed frame count per stage is not the same thing as a fixed tick
+  count, since tick rate is decoupled from frame rate; see
+  `docs/ROADMAP.md` for the real regression this caused before the fix).
+- Every real frame while a `Run` is active, `main.rs` times the
+  `Renderer::render_with` call specifically (not the whole frame — egui
+  layout/tessellation shouldn't count) and calls `Run::record_frame`.
+  When a stage's quota is hit, `main.rs` swaps in the next stage's
+  populated `Scene`; when the whole `Run` finishes, `main.rs` builds a
+  `Report` (via `Renderer::adapter_name`, added specifically for this)
+  and restores the user's real `AppConfig`-driven scene.
+- Only frames where `Renderer::recover_if_needed()` returned `true` are
+  recorded — a frame skipped because the device was lost isn't
+  representative and would otherwise pull a stage's average toward zero.
+- Export ("Export as Text…"/"Export as PDF…") happens directly in
+  `ui.rs`, the same synchronous-file-dialog pattern Export/Import config
+  already use — a `Report` is all either export function needs, no
+  window/GPU access required. The PDF (`printpdf`, a pure-Rust generator
+  with no external binary/renderer dependency) carries the project's own
+  simple branding (wordmark, accent-colored rule, site URL footer) —
+  hand-drawn text/line placement rather than a layout-engine dependency,
+  since the content's shape (one title block, one small table) never
+  changes.
+
 ## Native screensaver wrappers (Phase 3)
 
 Each OS has a different screensaver contract. Status differs sharply by

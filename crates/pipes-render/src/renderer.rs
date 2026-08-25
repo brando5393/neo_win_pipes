@@ -78,6 +78,11 @@ struct GpuState {
     sphere_mesh: GpuMesh,
     elbow_mesh: GpuMesh,
     teapot_mesh: GpuMesh,
+    /// Captured once from the `Adapter` right after `request_adapter`
+    /// (which this struct doesn't otherwise keep around) — exposed via
+    /// `Renderer::adapter_name` for anything that wants to show or report
+    /// which real GPU is in use, e.g. `pipes-settings`'s in-app benchmark.
+    adapter_info: wgpu::AdapterInfo,
     /// Set by `device.set_device_lost_callback` (registered once per
     /// `GpuState`, here) the moment the GPU device actually goes away — a
     /// driver reset/TDR, waking from sleep, etc. Real, hit-in-the-field
@@ -410,6 +415,15 @@ impl Renderer {
         self.gpu().config.format
     }
 
+    /// A human-readable "what GPU is this actually running on" string
+    /// (e.g. "Qualcomm(R) Adreno(TM) X1-85 GPU (Vulkan)"), for anything
+    /// that wants to show or report which real hardware is in use — e.g.
+    /// `pipes-settings`'s in-app benchmark.
+    pub fn adapter_name(&self) -> String {
+        let info = &self.gpu().adapter_info;
+        format!("{} ({:?})", info.name, info.backend)
+    }
+
     /// Same as [`Self::render`], but calls `extra` with the same device,
     /// queue, command encoder, and surface view right after the pipes pass
     /// and before submit/present — letting a caller (the settings app) add
@@ -656,6 +670,7 @@ where
         })
         .await
         .ok_or_else(|| "no compatible GPU adapter found".to_string())?;
+    let adapter_info = adapter.get_info();
 
     let (device, queue) = adapter
         .request_device(
@@ -820,6 +835,7 @@ where
         sphere_mesh,
         elbow_mesh,
         teapot_mesh,
+        adapter_info,
         device_lost,
     })
 }

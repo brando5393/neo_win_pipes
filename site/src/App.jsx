@@ -1,4 +1,4 @@
-import { Workflow, Palette, Sparkles, SlidersHorizontal, Bug, Monitor, Gem, RefreshCw, CheckCircle2, AlertTriangle, MinusCircle, GitFork, BookOpen, Tag, Download } from 'lucide-react'
+import { Workflow, Palette, Sparkles, SlidersHorizontal, Bug, Monitor, Gem, RefreshCw, Gauge, CheckCircle2, AlertTriangle, MinusCircle, GitFork, BookOpen, Tag, Download } from 'lucide-react'
 import DownloadButtons from './components/DownloadButtons'
 import Checksums from './components/Checksums'
 import PipesHero from './components/PipesHero'
@@ -47,6 +47,11 @@ const FEATURES = [
     icon: RefreshCw,
     title: 'Shrugs off a lost GPU',
     body: 'A driver reset, a sleep/wake cycle, or a flaky GPU used to take the whole screensaver down with it. Now it detects the loss, rebuilds the device from scratch, and resumes rendering live — no crash, no restart.',
+  },
+  {
+    icon: Gauge,
+    title: 'Benchmark your own hardware',
+    body: 'A "Run Benchmark" button in the settings drawer tests three progressively heavier scenes on your actual GPU and reports real FPS — export the result as text or a PDF instead of guessing what settings your machine can handle.',
   },
 ]
 
@@ -166,6 +171,12 @@ export default function App() {
         <div className="mt-8">
           <DownloadButtons />
         </div>
+        <p className="mx-auto mt-6 max-w-xl text-sm text-slate-400">
+          Any GPU with Vulkan/DirectX 12/Metal support from roughly the
+          last decade should run this comfortably — this is a lightweight
+          renderer, not a demanding one. Not sure about your own machine?
+          Pipes Settings has a one-click benchmark that tells you for real.
+        </p>
         <Checksums />
       </Reveal>
 

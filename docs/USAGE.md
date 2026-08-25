@@ -1,8 +1,38 @@
 # Usage
 
-> **Status**: Phase 4 (Windows) is live — there's a real `.msi` installer.
-> macOS/Linux aren't installable screensavers yet, and there's no
-> `.pkg`/`.deb` installer for them — see [ROADMAP.md](ROADMAP.md).
+> **Status**: Windows and Linux both have real installers (`.msi`;
+> `.deb`/AppImage) and are verified working on real hardware. macOS is
+> design-only — no code, no `.pkg` — see [ROADMAP.md](ROADMAP.md).
+
+## System requirements
+
+This project is deliberately lightweight — a handful of procedural meshes
+and simple instanced draw calls, not a demanding renderer — so
+requirements are modest. As a rough guide based on real measurements (see
+below), rather than a broad hardware survey:
+
+- **GPU**: anything with Vulkan, DirectX 12, or Metal support from
+  roughly the last decade, integrated graphics included. On the modest
+  end of what this project has actually tested — a Qualcomm Adreno X1-85
+  (an ARM64 laptop's integrated GPU, Vulkan backend) — the shipped
+  defaults render at ~350 FPS, and a deliberately heavy stress scene (a
+  64³ grid, 150 pipes at once) still holds ~157 FPS. A dedicated/discrete
+  GPU only matters if you turn the grid size and pipe count up well past
+  the defaults.
+- **CPU**: any CPU from the last decade. The simulation logic itself is
+  the cheap part by a wide margin — `cargo bench -p pipes-core` puts a
+  single tick at single-digit microseconds even on a large 64³-grid,
+  200-pipe scene (see `docs/DEVELOPMENT.md`).
+- **OS**: Windows 10/11 (x64 or ARM64) or a Linux desktop running
+  `xscreensaver` (X11). macOS isn't buildable yet at all — see above.
+
+**Don't take these numbers as gospel for your own machine** — GPUs vary
+enormously, and this project has only actually measured a small number of
+them. Pipes Settings has a "Run Benchmark" button (under Performance in
+the settings drawer) that runs the exact same three stages on your own
+real hardware and lets you export the result as text or PDF, which is a
+much more useful answer to "will this run well for me?" than any number
+in this doc.
 
 ## Running the screensaver (dev/manual testing)
 

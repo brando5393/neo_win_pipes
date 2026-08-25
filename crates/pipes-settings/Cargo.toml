@@ -32,6 +32,14 @@ semver = "1"
 # other reason to pull in a full tokio runtime.
 rfd = { version = "0.14", default-features = false, features = ["xdg-portal", "async-std"] }
 sha2 = "0.10"
+# Pure-Rust PDF generation (no external binary/renderer needed) for the
+# in-app benchmark report export — see benchmark.rs. default-features
+# disabled: this project only needs basic text/vector drawing, not
+# printpdf's image-format decoders (png/jpeg/webp/etc.).
+printpdf = { version = "0.7", default-features = false }
+# RFC3339 timestamp formatting for benchmark reports — much lighter than
+# pulling in chrono for one date string.
+humantime = "2"
 
 # Not used directly: rfd's "xdg-portal" feature (the native Linux file
 # dialog, via ashpd) pulls in zbus without any async-backend feature

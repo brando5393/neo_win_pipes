@@ -179,6 +179,40 @@ feature branch.
       and `pipes-settings` (screenshotted the 3D preview *and* the egui
       drawer — text, buttons, icons — all correctly rendering again after
       a real, deliberately triggered device loss).
+- [x] **In-app performance benchmark — shipped and verified.** Pipes
+      Settings' "Performance" section (`crates/pipes-settings/src/benchmark.rs`)
+      runs the *live* renderer through three progressively heavier preset
+      scenes (Light = shipped defaults, Medium, Heavy — a 64³ grid at 150
+      pipes) and measures real per-frame wall-clock time on the user's own
+      GPU, unlike the dev-only Criterion benches in `pipes-core`/
+      `pipes-render` (`cargo bench`, see `docs/DEVELOPMENT.md`), which
+      never touch a `Renderer` at all. Reports export as plain text or a
+      branded PDF (via `printpdf`, a pure-Rust generator — no external
+      binary/renderer dependency), both usable as a bug-report attachment
+      or a "can my machine run this well?" answer — see
+      `docs/USAGE.md#system-requirements`.
+      Two real bugs found only by actually running it, not by reasoning
+      about the numbers:
+      1. The very first rendered frame after a `Renderer` is created pays
+         a one-off GPU pipeline/shader warm-up cost (~77ms, vs. ~2-7ms
+         steady-state) that has nothing to do with a scene's actual
+         complexity, and it landed entirely inside the first benchmark
+         stage's average, skewing it. Fixed with a small fixed warm-up
+         (15 frames, discarded, not counted) before the first sample.
+      2. A fixed number of rendered *frames* per stage is not the same
+         thing as a fixed number of simulation *ticks* — tick rate is
+         decoupled from frame rate (`tick_interval_ms`) — so the "Heavy"
+         stage's `Scene` had barely started growing by the time its 180
+         frames were up, and the benchmark ended up measuring an
+         almost-empty scene. Confirmed by the actual result: "Heavy"
+         reported a *higher* FPS than "Light", the opposite of what a
+         real stress test should show. Fixed by stepping each stage's
+         `Scene` forward 400 ticks (matching `cargo bench -p
+         pipes-render`'s own warmup) before measuring any frames —
+         cheap, since a tick costs single-digit microseconds even at this
+         scale. After both fixes, results came out monotonic and
+         believable: ~350 FPS (Light) → ~257 FPS (Medium) → ~158 FPS
+         (Heavy) on this project's own dev GPU.
 - [x] Checked-in reference screenshots in `docs/screenshots/` (add more as
       the renderer evolves for visual regression comparison).
 - [x] Dissolve-on-reset: pipes shrink away over `dissolve_duration_ticks`

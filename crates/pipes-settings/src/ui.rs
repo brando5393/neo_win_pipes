@@ -8,7 +8,20 @@ use egui::{Context, RichText, Slider};
 use pipes_core::{Color, PipeStyleMode};
 use pipes_render::{AppConfig, MonitorMode};
 
+use crate::benchmark;
 use crate::update::AvailableUpdate;
+
+/// `main.rs`'s view of an in-progress benchmark run, just enough for
+/// `draw` to show a progress indicator — the actual `benchmark::Run` state
+/// machine stays in `main.rs`, which is what's actually driving real
+/// frames through it.
+pub struct BenchmarkProgress {
+    pub stage_name: String,
+    pub stage_number: usize,
+    pub stage_count: usize,
+    pub frames_done: u32,
+    pub frames_needed: u32,
+}
 
 pub struct Outcome {
     /// A change that affects the simulation itself (style, count, palette,
@@ -26,6 +39,13 @@ pub struct Outcome {
     /// "Dismiss" clicked on the update banner — hides it for the rest of
     /// this session (doesn't disable future checks/relaunches).
     pub update_dismissed: bool,
+    /// "Run Benchmark" clicked — deferred to `main.rs` since starting a run
+    /// means swapping in the first stage's `SimConfig`/`Scene`, which this
+    /// module doesn't own. Export ("as Text…"/"as PDF…"), by contrast,
+    /// only needs an already-finished `Report` (see `benchmark_report`
+    /// below) and is handled right here, the same way Export/Import config
+    /// already are.
+    pub run_benchmark_clicked: bool,
     pub preview_rect: egui::Rect,
 }
 
@@ -37,6 +57,7 @@ impl Default for Outcome {
             reset_to_defaults: false,
             update_now_clicked: false,
             update_dismissed: false,
+            run_benchmark_clicked: false,
             preview_rect: egui::Rect::NOTHING,
         }
     }
@@ -53,6 +74,8 @@ pub fn draw(
     config: &mut AppConfig,
     update: Option<&AvailableUpdate>,
     downloading: bool,
+    benchmark_progress: Option<&BenchmarkProgress>,
+    benchmark_report: Option<&benchmark::Report>,
 ) -> Outcome {
     let mut outcome = Outcome::default();
 
@@ -90,7 +113,16 @@ pub fn draw(
             // the bottom) — without this, overflow is silently clipped with
             // no scrollbar and no error, not just visually cramped.
             egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.heading("Pipes Settings");
+            ui.horizontal(|ui| {
+                ui.heading("Pipes Settings");
+                // CARGO_PKG_VERSION reflects the real shipped version in a
+                // release build (the release workflow sets
+                // `[workspace.package] version` from the git tag before
+                // building — see CLAUDE.md); a local dev build shows the
+                // placeholder "0.1.0", same as the update-checker already
+                // does.
+                ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).weak().small());
+            });
             ui.label(RichText::new("Live preview updates as you adjust these.").weak());
             ui.separator();
 
@@ -396,6 +428,96 @@ pub fn draw(
                         .small(),
                 );
             }
+
+            ui.separator();
+            ui.collapsing("Performance", |ui| {
+                ui.label(
+                    RichText::new(
+                        "Runs the live scene through a few progressively heavier presets \
+                         and measures real frame time on this GPU — a quick answer to \
+                         \"what grid size/pipe count can my machine actually run smoothly?\"",
+                    )
+                    .weak()
+                    .small(),
+                );
+                match benchmark_progress {
+                    Some(progress) => {
+                        ui.add(egui::Spinner::new());
+                        ui.label(format!(
+                            "Stage {}/{}: {} — {}/{} frames",
+                            progress.stage_number,
+                            progress.stage_count,
+                            progress.stage_name,
+                            progress.frames_done,
+                            progress.frames_needed
+                        ));
+                        ui.add(egui::ProgressBar::new(
+                            progress.frames_done as f32 / progress.frames_needed.max(1) as f32,
+                        ));
+                    }
+                    None => {
+                        if ui.button("Run Benchmark").clicked() {
+                            outcome.run_benchmark_clicked = true;
+                        }
+                    }
+                }
+                if let Some(report) = benchmark_report {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(format!("GPU: {}", report.gpu_name)).small());
+                    egui::Grid::new("benchmark_results")
+                        .num_columns(4)
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label(RichText::new("Stage").strong());
+                            ui.label(RichText::new("Grid / pipes").strong());
+                            ui.label(RichText::new("Avg FPS").strong());
+                            ui.label(RichText::new("Avg frame").strong());
+                            ui.end_row();
+                            for stage in &report.stages {
+                                ui.label(&stage.name);
+                                ui.label(format!(
+                                    "{}x{}x{} / {}",
+                                    stage.bounds.0, stage.bounds.1, stage.bounds.2, stage.max_pipes
+                                ));
+                                ui.label(format!("{:.1}", stage.avg_fps));
+                                ui.label(format!("{:.2} ms", stage.avg_ms));
+                                ui.end_row();
+                            }
+                        });
+                    ui.horizontal(|ui| {
+                        if ui.button("Export as Text…").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("neo_win_pipes_benchmark.txt")
+                                .add_filter("Text", &["txt"])
+                                .save_file()
+                            {
+                                if let Err(err) =
+                                    std::fs::write(&path, benchmark::to_text(report))
+                                {
+                                    tracing::error!(?err, path = %path.display(), "failed to export benchmark report");
+                                } else {
+                                    tracing::info!(path = %path.display(), "exported benchmark report (text)");
+                                }
+                            }
+                        }
+                        if ui.button("Export as PDF…").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("neo_win_pipes_benchmark.pdf")
+                                .add_filter("PDF", &["pdf"])
+                                .save_file()
+                            {
+                                if let Err(err) =
+                                    std::fs::write(&path, benchmark::to_pdf_bytes(report))
+                                {
+                                    tracing::error!(?err, path = %path.display(), "failed to export benchmark report");
+                                } else {
+                                    tracing::info!(path = %path.display(), "exported benchmark report (PDF)");
+                                }
+                            }
+                        }
+                    });
+                }
+            });
 
             ui.separator();
             if ui.button("Report Issue / Feedback…").clicked() {
