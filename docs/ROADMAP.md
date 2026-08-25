@@ -183,10 +183,13 @@ for the full writeup per platform.
       that assumption holds on every Windows version); no `.msi`
       installer yet (Phase 4).
 
-### Linux — real rendering code, real packages, one honest gap left
+### Linux — real rendering code, real packages, verified on hardware
 
-- [x] `pipes-xscreensaver` crate: parses `-root` / `-window-id <id>`
-      (decimal or hex), unit-tested.
+- [x] `pipes-xscreensaver` crate: resolves its target window from both
+      channels the real contract uses — `-root` / `-window-id <id>`
+      (decimal or hex) on the command line, *and* the
+      `XSCREENSAVER_WINDOW` environment variable the daemon actually uses
+      — unit-tested, with argv given precedence over the environment.
 - [x] `pipes_render::Renderer::new` generalized from a concrete
       `Arc<winit::window::Window>` parameter to generic over anything
       implementing the raw-window-handle traits `wgpu` needs — so this
@@ -210,24 +213,27 @@ for the full writeup per platform.
       call was checked against the real fetched crate source first (exact
       field names, function signatures, the `XEvent` union's `get_type()`
       helper, etc.).
-- [ ] **The one thing that can't be verified without a real Linux
-      machine with an X server and GPU**: does a GPU surface actually
-      come up correctly inside a window `xscreensaver`'s driver — or even
-      just plain `xscreensaver-demo -root`/a bare X server — actually
-      gives us? This compiles clean and passes clippy on real
-      `ubuntu-latest` CI, which is real, independent verification of
-      *compilation* correctness — but nobody has watched a window render.
-      Treat this as the single biggest remaining unverified assumption,
-      same spirit as the CLI-contract caveat below.
-- [ ] The exact xscreensaver hack CLI contract
-      (`-root`/`-window-id`, and the `<command>`/`<_description>` shape
-      of the config XML in `installer/linux/xscreensaver-config/`) was
-      built from real, fetched examples in xscreensaver's own upstream
-      `hacks/config/*.xml` (confirmed against `pipes.xml` and
-      `hypercube.xml` directly, not paraphrased from memory), but still
-      needs checking against a live `xscreensaver`/`xscreensaver-demo`
-      install to confirm the driver actually invokes things the way these
-      examples imply.
+- [x] **Verified on real Linux hardware** — the gap this section used to
+      call its single biggest unverified assumption is closed. A GPU
+      surface does come up correctly: the workspace builds clean on
+      Linux, all tests pass, and `pipes-xscreensaver` was watched
+      rendering both into the root window of a bare X server and into the
+      window a live `xscreensaver` 6.08 daemon handed it, on an NVIDIA
+      RTX 3060 Ti through wgpu's Vulkan backend.
+- [x] The exact xscreensaver hack CLI contract, checked against a live
+      `xscreensaver` 6.08 install — and the best-guess version had a real
+      hole in it. `-root`/`-window-id <id>` are accepted by stock hacks
+      and are what `xscreensaver-settings` uses to drive its preview, so
+      that much was right. **But the daemon passes no arguments at all**:
+      its driver (`xscreensaver-gfx`) hands a hack its window purely
+      through the `XSCREENSAVER_WINDOW` environment variable, formatted
+      `0x%lX`. Confirmed by running a probe script as a configured hack
+      under a real daemon — argv came through empty with
+      `XSCREENSAVER_WINDOW=0x60000C` set — and corroborated by `strings`
+      on `xscreensaver-gfx` and the stock hacks. Reading argv alone meant
+      falling back to the root window and drawing *behind* xscreensaver's
+      saver window, i.e. a black screen; `args::resolve_target_window`
+      now reads both channels.
 
 ### macOS — design only, no `.saver` code yet
 
@@ -249,9 +255,11 @@ for the full writeup per platform.
       every push — see the Phase 1 checkbox above for the first run's
       results.
 - [ ] Each wrapper gets its own smoke test appropriate to its platform —
-      done for Windows (see above); Linux's X11-embedding code now exists
-      and is CI-verified to compile/lint clean, but still has no real
-      display-server smoke test (no Linux machine with an X server/GPU);
+      done for Windows (see above); Linux has now had a real manual
+      display-server smoke test (bare X server *and* a live `xscreensaver`
+      daemon, rendering confirmed by screenshot — see the Linux section
+      above), though it isn't automated in CI yet, since a GPU-backed X
+      server isn't something the stock `ubuntu-latest` runner provides;
       macOS is still blocked on the `.saver` code not existing at all.
 - [x] Multi-monitor behavior — three modes, a Pipes Settings toggle:
       `MonitorMode::AllMonitors` (default, independent per-display
@@ -425,7 +433,7 @@ for the full writeup per platform.
       for `ARPPRODUCTICON` (Programs and Features listing) and both Start
       Menu shortcuts.
 
-### Linux — done, compiles/lints clean on real CI, unverified at runtime
+### Linux — done, compiles/lints clean on real CI, runtime-verified
 
 - [x] `installer/linux/build-deb.sh` builds a real `.deb`:
       `pipes-xscreensaver` into `/usr/libexec/xscreensaver/`, its

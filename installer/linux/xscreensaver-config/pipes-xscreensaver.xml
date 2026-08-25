@@ -14,9 +14,15 @@
   this package - not through this dialog. Real-world XML structure
   (attribute names, <command>/<_description> shape) confirmed against
   xscreensaver's own upstream hacks/config/*.xml files (e.g. pipes.xml,
-  hypercube.xml); the deeper question of whether the driver's actual
-  -root/-window-id invocation lines up exactly as expected is this
-  package's biggest unverified assumption - see docs/ROADMAP.md.
+  hypercube.xml). The driver's actual invocation has now been verified
+  against a live xscreensaver 6.08 too: the daemon passes no arguments
+  of its own and hands the hack its window through the
+  XSCREENSAVER_WINDOW environment variable instead. The -root below is
+  kept because it is the convention every stock hack's config carries,
+  and it is correctly read as "no specific window was named" - the
+  environment variable outranks it, which is what keeps the hack drawing
+  inside xscreensaver's window rather than behind it. See
+  crates/pipes-xscreensaver/src/args.rs and docs/ROADMAP.md.
 -->
 <screensaver name="pipes-xscreensaver" _label="Neo Pipes">
 
