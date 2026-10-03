@@ -38,11 +38,21 @@ cleanly from a stock desktop's package manager end to end, but the
 core "does it render" question — this project's previous single
 biggest open assumption on Linux — is closed.
 
-**macOS is still design-only** — no code at all, no `.saver` bundle, not
-even argument parsing, because there's no way to compile Objective-C/Swift
-or link a Mach-O binary from this project's Windows dev machine at all
-(unlike Linux, which at least cross-compiles/type-checks here). See
-`docs/ROADMAP.md` before claiming otherwise about either platform.
+**macOS has been pilot-tested on real Apple Silicon hardware** (by a
+contributor, not from this dev machine): the whole workspace builds, all
+tests pass, `fmt`/`clippy` are clean, and the renderer draws correctly via
+Metal — `pipes-settings` works well interactively. Four real bugs/gaps
+came out of that pilot (an update check wrongly offering the Windows
+`.msi`, a `/s`-mode startup race, no real fullscreen, a debug-only panic
+in a `winit` dependency) — see `docs/ROADMAP.md` for status; two are
+fixed, two need a Mac to pursue further. The `.saver` bundle itself (what
+an actual macOS screensaver release needs) is still design-only — no code
+at all, because there's no way to compile Objective-C/Swift or link a
+Mach-O binary from this project's Windows dev machine at all (unlike
+Linux, which at least cross-compiles/type-checks here). A `mac-os-support`
+branch is where that work and the remaining pilot fixes are being carried
+forward on real hardware. See `docs/ROADMAP.md` before claiming otherwise
+about either platform.
 
 ## Commands
 

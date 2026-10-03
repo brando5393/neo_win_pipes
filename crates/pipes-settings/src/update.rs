@@ -87,7 +87,21 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// yet) just yields `None` — a background version check failing
 /// silently is correct behavior here, not something that should ever
 /// interrupt using the app.
+///
+/// Windows-only: every release attaches one shared `.msi` built for
+/// Windows, and `parse_update` doesn't distinguish which OS's installer
+/// an asset is for — it just finds *an* `.msi`. Without this gate, a
+/// macOS (or Linux) build of `pipes-settings` would find that same
+/// Windows `.msi` in the release's asset list and offer it as "available",
+/// and `launch_installer` would then try to run `msiexec`, which doesn't
+/// exist on those platforms. Reported against a real macOS pilot build —
+/// see `docs/ROADMAP.md`. Linux doesn't yet have its own self-update path
+/// either (`.deb`/AppImage users update via their package manager or by
+/// re-downloading), so it's gated out the same way until that exists.
 pub fn check_for_update(current: &Version) -> Option<AvailableUpdate> {
+    if !cfg!(target_os = "windows") {
+        return None;
+    }
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
     let body = ureq::get(&url)
         .set("User-Agent", USER_AGENT)

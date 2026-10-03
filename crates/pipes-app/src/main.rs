@@ -85,6 +85,16 @@ type Rect = (f32, f32, f32, f32);
 /// constructor and can't be built in a unit test without a live windowing
 /// system, so the actual layout math is kept independent of it and callers
 /// translate real monitors into rects at the call site.
+/// True once a cursor position has moved far enough from `baseline` to
+/// count as real user input rather than a window manager redelivering the
+/// same position it already reported (see `INPUT_GRACE`'s doc in `run`).
+/// A few pixels of slop absorbs OS-level float jitter in the reported
+/// position without absorbing an actual mouse nudge.
+fn cursor_moved_past_threshold(baseline: (f64, f64), pos: (f64, f64)) -> bool {
+    const THRESHOLD_PX: f64 = 2.0;
+    (pos.0 - baseline.0).hypot(pos.1 - baseline.1) > THRESHOLD_PX
+}
+
 fn virtual_canvas(rects: &[PixelRect]) -> ((f32, f32), Vec<Rect>) {
     let min_x = rects.iter().map(|&(x, _, _, _)| x).min().unwrap_or(0);
     let min_y = rects.iter().map(|&(_, y, _, _)| y).min().unwrap_or(0);
@@ -463,6 +473,18 @@ fn main() {
     const INPUT_GRACE: Duration = Duration::from_millis(750);
     let exit_on_input_now =
         move |start: Instant| exit_on_any_input && start.elapsed() > INPUT_GRACE;
+    // CursorMoved alone isn't reliable as "the user moved the mouse": a
+    // window manager can redeliver the cursor's already-current position
+    // as its own CursorMoved well after creation (this project's own
+    // startup-replay bug above is one case; a real-world report against
+    // macOS /s mode — see docs/ROADMAP.md — describes a second delivery
+    // arriving late enough to land after INPUT_GRACE too, so widening the
+    // grace period can't fix it in general, only move the race). Only
+    // treat it as real input once the position actually changes from the
+    // first one observed, which is what every other screensaver's mouse
+    // threshold does and what a window manager replaying a stale position
+    // can never produce.
+    let mut cursor_baseline: Option<(f64, f64)> = None;
 
     event_loop
         .run(move |event, elwt| match event {
@@ -482,8 +504,17 @@ fn main() {
                         state: ElementState::Pressed,
                         ..
                     } if exit_on_input_now(start) => return elwt.exit(),
-                    WindowEvent::CursorMoved { .. } if exit_on_input_now(start) => {
-                        return elwt.exit()
+                    WindowEvent::CursorMoved { position, .. } => {
+                        let pos = (position.x, position.y);
+                        match cursor_baseline {
+                            None => cursor_baseline = Some(pos),
+                            Some(baseline) if cursor_moved_past_threshold(baseline, pos) => {
+                                if exit_on_input_now(start) {
+                                    return elwt.exit();
+                                }
+                            }
+                            Some(_) => {}
+                        }
                     }
                     _ => {}
                 }
@@ -706,5 +737,22 @@ mod tests {
         let (canvas, tiles) = virtual_canvas(&rects);
         assert_eq!(canvas, (2560.0, 1440.0));
         assert_eq!(tiles, vec![(0.0, 0.0, 2560.0, 1440.0)]);
+    }
+
+    #[test]
+    fn identical_cursor_position_does_not_count_as_movement() {
+        // The exact case a window manager redelivering the same position
+        // produces — must not look like real input.
+        assert!(!cursor_moved_past_threshold((100.0, 100.0), (100.0, 100.0)));
+    }
+
+    #[test]
+    fn sub_pixel_jitter_does_not_count_as_movement() {
+        assert!(!cursor_moved_past_threshold((100.0, 100.0), (100.5, 100.2)));
+    }
+
+    #[test]
+    fn a_real_mouse_nudge_counts_as_movement() {
+        assert!(cursor_moved_past_threshold((100.0, 100.0), (120.0, 100.0)));
     }
 }

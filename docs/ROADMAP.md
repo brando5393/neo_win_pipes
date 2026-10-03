@@ -420,19 +420,85 @@ for the full writeup per platform.
       saver window, i.e. a black screen; `args::resolve_target_window`
       now reads both channels.
 
-### macOS — design only, no `.saver` code yet
+### macOS — pilot-tested on real hardware, `.saver` not started
 
 - [x] Confirmed by the first real CI run: the existing workspace (`pipes-core`,
       `pipes-render`, `pipes-app`, `pipes-settings`, `pipes-xscreensaver` —
       everything that exists so far) builds and passes its tests on
       `macos-latest` in 1m29s. Useful, but not the same thing as a `.saver`
       — no `ScreenSaverView`/bundle code exists yet.
-- [ ] Not started. A `.saver` is an `NSBundle` implementing
-      `ScreenSaverView` (`objc2` + `objc2-screen-saver`), built as a
-      `cdylib` with `-bundle` and an `Info.plist` — normally an Xcode-
-      toolchain job, not plain `cargo build`. No code was written here:
-      unlike Linux's argument parsing, there's no piece of this that's
-      both real progress and verifiable without a Mac.
+- [x] Pilot-tested on real Apple Silicon hardware (macOS 26.4.1) by a
+      contributor (Logan), going beyond CI's build-and-test check: the
+      whole workspace builds, all tests pass, `fmt`/`clippy` are clean,
+      the renderer draws correctly via Metal, and `pipes-settings` works
+      well interactively. This project's own docs previously undersold
+      that state by implying nothing ran — corrected here per that report.
+      Four real bugs/gaps surfaced by actually running it, not findable by
+      reading the code alone (consistent with this project's Empirical
+      Verification Contract) — tracked individually below since they're
+      independent fixes, not one blocking issue:
+      - [x] `pipes-settings`'s update check isn't gated to Windows, so a
+        macOS (or Linux) build finds the same Windows `.msi` in a
+        release's shared asset list and offers it as an update;
+        `launch_installer` would then try to run `msiexec`, which doesn't
+        exist there. **Fixed**: `update::check_for_update` now short-circuits
+        to `None` on any non-Windows target — see `crates/pipes-settings/src/update.rs`.
+        Logic-level fix only; not runnable here to confirm end-to-end on an
+        actual macOS build (no macOS toolchain on this project's dev
+        machine — see the macOS design-only note below), so treat as
+        reviewed, not verified on-device.
+      - [ ] `/s` mode sometimes self-exits about a second after launch (2
+        of 5 hands-off runs on the reporter's Mac): the 750ms startup
+        input-grace-period can race a second, later redelivery of the
+        cursor's position as its own `CursorMoved` event. **Partially
+        addressed**: `pipes-app`'s event loop no longer treats *any*
+        `CursorMoved` after the grace period as exit-worthy input — it now
+        tracks the first cursor position observed and only exits once a
+        later position differs by more than a couple of pixels (see
+        `cursor_moved_past_threshold` in `crates/pipes-app/src/main.rs`),
+        which can't be fooled by a stale position being redelivered no
+        matter when it arrives. This is a general correctness fix (not a
+        `cfg(target_os = "macos")` special case) and is unit-tested for
+        its own logic, but the actual race was only ever observed on a
+        Mac, and this project has no macOS hardware to reproduce or
+        confirm the fix against — needs the reporter to re-run their
+        hands-off `/s` test on the `mac-os-support` branch.
+      - [ ] Nothing goes fullscreen on macOS — title bar, menu bar, and
+        Dock all stay, most likely because `pipes-app` runs as a bare
+        binary rather than a bundled `.app`. Not fixed here: this is the
+        same underlying gap as the `.saver` bundle work below (a bare
+        executable can't get NSApplication's fullscreen/kiosk behavior
+        without becoming a proper bundle), so it's being tracked as part
+        of that work rather than patched separately.
+      - [ ] `cargo run` (debug profile only; release builds are fine)
+        panics on macOS inside `icrate` 0.0.4, pinned transitively by
+        `winit` 0.29. Not attempted here: bumping `winit`/replacing
+        `icrate`'s dependency chain would need to be verified on real
+        macOS hardware (and re-verified on Windows/Linux, since `winit` is
+        shared across all three `pipes-app`/`pipes-settings` targets) —
+        exactly the kind of change this project's own rule against
+        shipping unverifiable platform-specific code exists to block from
+        this machine. Left for the `mac-os-support` branch, where it can
+        actually be run.
+      - Reporter is proceeding with a `mac-os-support` branch to carry
+        these (plus the fullscreen/bundle work) forward on real hardware;
+        a note on timing: they may hold on finishing the full port until
+        they have an Apple Developer Program membership for signing and
+        notarization.
+- [ ] The `.saver` bundle itself is not started. A `.saver` is an
+      `NSBundle` implementing `ScreenSaverView` (`objc2` +
+      `objc2-screen-saver`), built as a `cdylib` with `-bundle` and an
+      `Info.plist` — normally an Xcode-toolchain job, not plain
+      `cargo build`. No code was written here: unlike Linux's argument
+      parsing, there's no piece of this that's both real progress and
+      verifiable without a Mac. `pipes-core`/`pipes-render` are expected
+      to carry over unchanged (the renderer is already generic over
+      raw-window-handle from the Linux work), and a macOS saver crate can
+      likely follow `pipes-xscreensaver`'s structure closely — rough
+      estimate from the pilot tester is 3-5 weeks part-time, starting
+      with a 1-2 day spike proving a Rust `.saver` loads at all. Tracked
+      on the `mac-os-support` branch, not this one, since it needs
+      hands-on Mac access this project's dev machine doesn't have.
 
 ### Cross-platform
 
