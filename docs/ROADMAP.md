@@ -463,23 +463,31 @@ for the full writeup per platform.
         Mac, and this project has no macOS hardware to reproduce or
         confirm the fix against — needs the reporter to re-run their
         hands-off `/s` test on the `mac-os-support` branch.
-      - [ ] Nothing goes fullscreen on macOS — title bar, menu bar, and
-        Dock all stay, most likely because `pipes-app` runs as a bare
-        binary rather than a bundled `.app`. Not fixed here: this is the
-        same underlying gap as the `.saver` bundle work below (a bare
-        executable can't get NSApplication's fullscreen/kiosk behavior
-        without becoming a proper bundle), so it's being tracked as part
-        of that work rather than patched separately.
-      - [ ] `cargo run` (debug profile only; release builds are fine)
-        panics on macOS inside `icrate` 0.0.4, pinned transitively by
-        `winit` 0.29. Not attempted here: bumping `winit`/replacing
-        `icrate`'s dependency chain would need to be verified on real
-        macOS hardware (and re-verified on Windows/Linux, since `winit` is
-        shared across all three `pipes-app`/`pipes-settings` targets) —
-        exactly the kind of change this project's own rule against
-        shipping unverifiable platform-specific code exists to block from
-        this machine. Left for the `mac-os-support` branch, where it can
-        actually be run.
+        Re-run 2026-11-03 on Apple Silicon (A18 Pro, macOS 27.0.1, Metal)
+        with the fullscreen fix below: 4 of 4 hands-off `/s` runs (3
+        release, 1 debug) stayed up for the full 6 s with nobody touching
+        the machine, and moving the mouse still exits as it should.
+      - [x] Nothing went fullscreen on macOS — title bar, menu bar, and
+        Dock all stayed. Cause: winit's `Fullscreen::Borderless` is the
+        native Spaces transition, which an unbundled binary doesn't get.
+        Fixed without needing a bundle: on macOS `/s` now places the
+        window over its monitor and switches it to winit's "simple"
+        (same-Space) fullscreen via `WindowExtMacOS::set_simple_fullscreen`
+        — edge to edge, menu bar and Dock hidden, no Space animation.
+        Other platforms keep `Fullscreen::Borderless` unchanged. Verified
+        by screenshot on macOS 27.0.1. (The `.saver` bundle below is still
+        what a real macOS release needs; this just makes `/s` correct.)
+      - [x] `cargo run` (debug profile only; release builds are fine)
+        panicked on macOS inside `icrate` 0.0.4, pinned transitively by
+        `winit` 0.29: its NSFastEnumeration binding declares a signed
+        return type that current macOS reports as unsigned, and `objc2`
+        checks message encodings only under debug assertions. Fixed
+        without touching `winit`: the workspace `Cargo.toml` turns off
+        debug assertions for just the `objc2` and `icrate` crates, so the
+        workspace's own `debug_assert!`s stay on and Windows/Linux are
+        unaffected (those crates are macOS-only). Remove once `winit`
+        moves past 0.29. Verified: a debug `/s` build opens and renders
+        on macOS 27.0.1 with no panic.
       - Reporter is proceeding with a `mac-os-support` branch to carry
         these (plus the fullscreen/bundle work) forward on real hardware;
         a note on timing: they may hold on finishing the full port until

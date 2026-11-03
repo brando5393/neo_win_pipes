@@ -44,8 +44,8 @@ tests pass, `fmt`/`clippy` are clean, and the renderer draws correctly via
 Metal — `pipes-settings` works well interactively. Four real bugs/gaps
 came out of that pilot (an update check wrongly offering the Windows
 `.msi`, a `/s`-mode startup race, no real fullscreen, a debug-only panic
-in a `winit` dependency) — see `docs/ROADMAP.md` for status; two are
-fixed, two need a Mac to pursue further. The `.saver` bundle itself (what
+in a `winit` dependency) — see `docs/ROADMAP.md` for status; all four
+are fixed (the last two verified on a Mac by the contributor). The `.saver` bundle itself (what
 an actual macOS screensaver release needs) is still design-only — no code
 at all, because there's no way to compile Objective-C/Swift or link a
 Mach-O binary from this project's Windows dev machine at all (unlike

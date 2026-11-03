@@ -22,3 +22,19 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
 serde = { version = "1", features = ["derive"] }
 criterion = "0.5"
+
+# macOS: winit 0.29 pins icrate 0.0.4, whose generated NSFastEnumeration
+# binding declares `countByEnumeratingWithState:objects:count:` as returning
+# a signed NSInteger. Current macOS runtimes report NSUInteger ('Q' vs 'q'),
+# and objc2 verifies every message's encoding when debug assertions are on —
+# so enumerating NSScreen for multi-monitor setup panics in every debug build
+# (`cargo run -p pipes-app` included) before the first frame. Release builds
+# never check, which is why shipped binaries are fine. Turning off debug
+# assertions for just these two dependency crates silences that one upstream
+# check while leaving this workspace's own `debug_assert!`s on. Remove once
+# winit moves past 0.29 (0.30+ drops icrate for objc2's framework crates).
+[profile.dev.package.objc2]
+debug-assertions = false
+
+[profile.dev.package.icrate]
+debug-assertions = false
